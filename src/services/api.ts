@@ -86,6 +86,8 @@ const timeoutMs = 15_000;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const controller = new AbortController();
+  const forwardAbort = () => controller.abort();
+  init?.signal?.addEventListener("abort", forwardAbort, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(`${baseUrl}${path}`, {
@@ -111,6 +113,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw error;
   } finally {
     clearTimeout(timeout);
+    init?.signal?.removeEventListener("abort", forwardAbort);
   }
 }
 
@@ -118,8 +121,8 @@ export const api = {
   health: () => request<HealthResponse>("/api/health"),
   schema: () => request<DatasetSchema>("/api/schema"),
   datasets: () => request<Dataset[] | { datasets: Dataset[] }>("/api/datasets"),
-  analyze: (body: AnalysisRequest) =>
-    request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body) }),
+  analyze: (body: AnalysisRequest, signal?: AbortSignal) =>
+    request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), signal }),
   query: (sql: string) => request<SqlResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
   evaluation: () => request<EvaluationReport>("/api/evaluation"),
   runEvaluation: () => request<EvaluationReport>("/api/evaluation/run", { method: "POST", body: "{}" }),
