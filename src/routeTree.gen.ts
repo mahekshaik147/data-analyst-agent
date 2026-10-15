@@ -9,27 +9,123 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as IndexRouteImport } from './routes/index'
+import { Route as AnalystRouteImport } from './routes/analyst'
+import { Route as DatasetsRouteImport } from './routes/datasets'
+import { Route as EvaluationRouteImport } from './routes/evaluation'
+import { Route as SettingsRouteImport } from './routes/settings'
 
-export interface FileRoutesByFullPath {}
-export interface FileRoutesByTo {}
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AnalystRoute = AnalystRouteImport.update({
+  id: '/analyst',
+  path: '/analyst',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DatasetsRoute = DatasetsRouteImport.update({
+  id: '/datasets',
+  path: '/datasets',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EvaluationRoute = EvaluationRouteImport.update({
+  id: '/evaluation',
+  path: '/evaluation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+
+export interface FileRoutesByFullPath {
+  '/': typeof IndexRoute
+  '/analyst': typeof AnalystRoute
+  '/datasets': typeof DatasetsRoute
+  '/evaluation': typeof EvaluationRoute
+  '/settings': typeof SettingsRoute
+}
+export interface FileRoutesByTo {
+  '/': typeof IndexRoute
+  '/analyst': typeof AnalystRoute
+  '/datasets': typeof DatasetsRoute
+  '/evaluation': typeof EvaluationRoute
+  '/settings': typeof SettingsRoute
+}
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
+  '/': typeof IndexRoute
+  '/analyst': typeof AnalystRoute
+  '/datasets': typeof DatasetsRoute
+  '/evaluation': typeof EvaluationRoute
+  '/settings': typeof SettingsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: never
+  fullPaths: '/' | '/analyst' | '/datasets' | '/evaluation' | '/settings'
   fileRoutesByTo: FileRoutesByTo
-  to: never
-  id: '__root__'
+  to: '/' | '/analyst' | '/datasets' | '/evaluation' | '/settings'
+  id: '__root__' | '/' | '/analyst' | '/datasets' | '/evaluation' | '/settings'
   fileRoutesById: FileRoutesById
 }
-export interface RootRouteChildren {}
-
-declare module '@tanstack/react-router' {
-  interface FileRoutesByPath {}
+export interface RootRouteChildren {
+  IndexRoute: typeof IndexRoute
+  AnalystRoute: typeof AnalystRoute
+  DatasetsRoute: typeof DatasetsRoute
+  EvaluationRoute: typeof EvaluationRoute
+  SettingsRoute: typeof SettingsRoute
 }
 
-const rootRouteChildren: RootRouteChildren = {}
+declare module '@tanstack/react-router' {
+  interface FileRoutesByPath {
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/analyst': {
+      id: '/analyst'
+      path: '/analyst'
+      fullPath: '/analyst'
+      preLoaderRoute: typeof AnalystRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/datasets': {
+      id: '/datasets'
+      path: '/datasets'
+      fullPath: '/datasets'
+      preLoaderRoute: typeof DatasetsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/evaluation': {
+      id: '/evaluation'
+      path: '/evaluation'
+      fullPath: '/evaluation'
+      preLoaderRoute: typeof EvaluationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+  }
+}
+
+const rootRouteChildren: RootRouteChildren = {
+  IndexRoute: IndexRoute,
+  AnalystRoute: AnalystRoute,
+  DatasetsRoute: DatasetsRoute,
+  EvaluationRoute: EvaluationRoute,
+  SettingsRoute: SettingsRoute,
+}
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
