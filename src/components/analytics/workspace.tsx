@@ -31,6 +31,8 @@ type WorkspaceConfig = {
   setDataset: (dataset: string) => void;
   maxRows: string;
   setMaxRows: (rows: string) => void;
+  density: "comfortable" | "compact";
+  setDensity: (density: "comfortable" | "compact") => void;
 };
 const WorkspaceConfigContext = createContext<WorkspaceConfig | null>(null);
 function useWorkspaceConfig() {
@@ -45,10 +47,11 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [dataset, setDataset] = useState("northwind");
   const [maxRows, setMaxRows] = useState("100");
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [connectionError, setConnectionError] = useState("");
 
   useEffect(() => {
-    void api.health().then((value) => { setHealth(value.status === "ok" || value.status === "healthy" ? "online" : "online"); setConnectionError(""); }).catch(() => { setHealth("offline"); setConnectionError("Backend unavailable"); });
+    void api.health().then((value) => { setHealth(["ok", "healthy", "connected", "up"].includes(value.status.toLowerCase()) ? "online" : "offline"); setConnectionError(""); }).catch(() => { setHealth("offline"); setConnectionError("Backend unavailable"); });
     void api.datasets().then((value) => {
       const entries = Array.isArray(value) ? value : value.datasets;
       setDatasets(entries);
@@ -65,6 +68,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   }
 
   const pageTitle = navItems.find((item) => item.to === path)?.title ?? "Overview";
+  const workspaceConfig = useMemo(() => ({ dataset, setDataset, maxRows, setMaxRows, density, setDensity }), [dataset, maxRows, density]);
   return (
     <div className="workspace-shell">
       <aside className={`workspace-sidebar ${menuOpen ? "sidebar-open" : ""}`}>
@@ -82,17 +86,17 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
         </nav>
         <div className="sidebar-bottom">
           <div className="connection-box"><span className={`connection-dot ${health}`} /><div><strong>{health === "online" ? "Backend connected" : health === "loading" ? "Connecting…" : "Backend offline"}</strong><small>{connectionError || apiBaseUrl() || "API URL not configured"}</small></div><span className="connection-pulse" /></div>
-          <div className="sidebar-dataset"><Database size={15} /><span>{datasets.find((entry) => entry.id === dataset)?.name ?? "Northwind"}</span><ChevronDown size={14} /></div>
-          <div className="profile-row"><div className="profile-avatar">MA</div><div><strong>Analyst</strong><small>Workspace user</small></div><button className="icon-button profile-menu" title="Profile options" aria-label="Profile options"><Menu size={16} /></button></div>
+          <div className="sidebar-dataset"><Database size={15} /><span>{datasets.find((entry) => entry.id === dataset)?.name ?? "No dataset selected"}</span><ChevronDown size={14} /></div>
+          <div className="profile-row"><div className="profile-avatar">MA</div><div><strong>Analyst</strong><small>Workspace user</small></div><Link to="/settings" className="icon-button profile-menu" title="Open settings" aria-label="Open settings"><Settings2 size={16} /></Link></div>
         </div>
       </aside>
       {menuOpen && <button className="mobile-scrim" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
-      <WorkspaceConfigContext.Provider value={{ dataset, setDataset, maxRows, setMaxRows }}>
+      <WorkspaceConfigContext.Provider value={workspaceConfig}>
       <main className="workspace-main">
         <header className="topbar">
           <div className="topbar-title"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle navigation"><Menu size={19} /></Button><div><div className="breadcrumb">WORKSPACE <span>/</span> {pageTitle.toUpperCase()}</div><h1>{pageTitle}</h1></div></div>
           <div className="topbar-actions">
-            <Select value={dataset} onValueChange={setDataset}><SelectTrigger className="dataset-select"><Database size={15} /><SelectValue placeholder="Select dataset" /></SelectTrigger><SelectContent>{datasets.length ? datasets.map((entry) => <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>) : <SelectItem value="northwind">Northwind sample</SelectItem>}</SelectContent></Select>
+            <Select value={dataset} onValueChange={setDataset} disabled={!datasets.length}><SelectTrigger className="dataset-select"><Database size={15} /><SelectValue placeholder="No dataset" /></SelectTrigger><SelectContent>{datasets.map((entry) => <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>)}</SelectContent></Select>
             <span className={`header-status ${health}`}><span className="connection-dot" /> <span>{health === "online" ? "Connected" : health === "loading" ? "Checking" : "Offline"}</span></span>
             <Button variant="ghost" size="icon" className="theme-toggle" onClick={toggleTheme} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"} title="Toggle theme">{dark ? <Sun size={17} /> : <Moon size={17} />}</Button>
             <div className="profile-avatar header-avatar" aria-label="Analyst profile">MA</div>
@@ -132,7 +136,7 @@ export function OverviewPage() {
     </section>
     <div className="overview-grid">
       <section className="surface-panel recent-panel"><div className="section-heading"><div><span className="section-kicker">WORKSPACE</span><h3>Recent analyses</h3></div><Link to="/analyst" search={{}} className="text-link">Open analyst <span>→</span></Link></div><div className="empty-activity"><div className="empty-icon"><MessageSquareText size={20} /></div><strong>No analyses yet</strong><p>Your completed analyses will appear here.</p><Button variant="outline" size="sm" asChild><Link to="/analyst" search={{}}><Plus size={14} /> Start your first analysis</Link></Button></div></section>
-      <section className="surface-panel dataset-summary"><div className="section-heading"><div><span className="section-kicker">DATA SOURCE</span><h3>Dataset summary</h3></div><Link to="/datasets" className="icon-link" aria-label="Open dataset explorer"><ArrowUp size={15} /></Link></div><div className="dataset-card"><div className="dataset-icon"><Database size={18} /></div><div><strong>{schema?.dataset ?? "Northwind sample database"}</strong><p>{schema ? `${schema.tables.length} tables discovered from the live schema` : "Schema details load when the backend is connected"}</p></div><span className={`source-state ${health}`}>{health === "online" ? "READY" : health === "loading" ? "CHECKING" : "OFFLINE"}</span></div><div className="dataset-facts"><span><Table2 size={14} /> Tables <strong>{schema ? schema.tables.length : "—"}</strong></span><span><Activity size={14} /> Connection <strong>{health === "online" ? "Active" : health === "loading" ? "Checking" : "Offline"}</strong></span></div></section>
+      <section className="surface-panel dataset-summary"><div className="section-heading"><div><span className="section-kicker">DATA SOURCE</span><h3>Dataset summary</h3></div><Link to="/datasets" className="icon-link" aria-label="Open dataset explorer"><ArrowUp size={15} /></Link></div><div className="dataset-card"><div className="dataset-icon"><Database size={18} /></div><div><strong>{schema?.dataset ?? "No dataset connected"}</strong><p>{schema ? `${schema.tables.length} tables discovered from the live schema` : "Schema details load when the backend is connected"}</p></div><span className={`source-state ${health}`}>{health === "online" ? "READY" : health === "loading" ? "CHECKING" : "OFFLINE"}</span></div><div className="dataset-facts"><span><Table2 size={14} /> Tables <strong>{schema ? schema.tables.length : "—"}</strong></span><span><Activity size={14} /> Connection <strong>{health === "online" ? "Active" : health === "loading" ? "Checking" : "Offline"}</strong></span></div></section>
       <section className="surface-panel questions-panel"><div className="section-heading"><div><span className="section-kicker">GET STARTED</span><h3>Questions to explore</h3></div><CircleHelp size={17} className="muted-icon" /></div><div className="faq-list">{questions.slice(0, 4).map((question, index) => <Link key={question} to="/analyst" search={{ question }} className="faq-item"><span className="faq-index">0{index + 1}</span><span>{question}</span><span className="faq-arrow">↗</span></Link>)}</div><Link to="/analyst" search={{}} className="more-questions">Explore all suggested questions <span>→</span></Link></section>
       <section className="activity-panel"><div className="activity-copy"><span className="section-kicker">BUILT FOR CLARITY</span><h3>From question<br />to confident action.</h3><p>Bring your business data into focus with a workflow built around transparent SQL and real results.</p><div className="activity-steps"><span><i>01</i> Ask in plain English</span><span><i>02</i> Inspect generated SQL</span><span><i>03</i> Share clear results</span></div></div><div className="activity-graphic" aria-hidden="true"><div className="graph-label">QUERY FLOW <span>●</span></div><div className="flow-line"><div className="flow-node"><MessageSquareText size={16} /></div><div className="flow-dash" /><div className="flow-node"><SquareTerminal size={16} /></div><div className="flow-dash" /><div className="flow-node flow-node-accent"><BarChart3 size={16} /></div></div><div className="flow-caption"><span>QUESTION</span><span>SQL</span><span>INSIGHT</span></div></div></section>
     </div>
@@ -259,11 +263,11 @@ export function SettingsPage() {
   const workspace = useWorkspaceConfig();
   const [health, setHealth] = useState<"idle" | "checking" | "connected" | "failed">("idle");
   const [message, setMessage] = useState("");
-  const [density, setDensity] = useState("comfortable");
+  useEffect(() => { document.documentElement.classList.toggle("compact-tables", workspace?.density === "compact"); }, [workspace?.density]);
   async function testConnection() { setHealth("checking"); setMessage(""); try { const result = await api.health(); setHealth("connected"); setMessage(`Connection successful${result.database ? ` · ${result.database}` : ""}.`); } catch (caught) { setHealth("failed"); setMessage(caught instanceof Error ? caught.message : "Could not reach the backend."); } }
   return <div className="subpage"><PageIntro eyebrow="WORKSPACE PREFERENCES" title="Settings" description="Configure the API connection and your analysis display preferences." />
     <div className="settings-layout"><section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">CONNECTION</span><h3>Backend API</h3></div><div className={`settings-connection ${health}`}><span className="connection-dot" />{health === "connected" ? "Connected" : health === "checking" ? "Testing" : health === "failed" ? "Unavailable" : "Not tested"}</div></div><label className="setting-field"><span>Backend API URL</span><Input value={apiBaseUrl() || "Not configured · set VITE_API_BASE_URL"} readOnly /></label><p className="field-hint">Set <code>VITE_API_BASE_URL</code> in your environment to point to the Python service.</p><Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={health === "checking"}>{health === "checking" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} Test connection</Button>{message && <p className={`connection-message ${health}`}>{message}</p>}</section>
-      <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">QUERY DEFAULTS</span><h3>Analysis preferences</h3></div></div><label className="setting-field"><span>Selected dataset</span><Input value={workspace?.dataset ?? "Not selected"} readOnly /><small>Change the selected dataset from the workspace header.</small></label><label className="setting-field"><span>Maximum result rows</span><Input type="number" min="1" max="1000" value={workspace?.maxRows ?? "100"} onChange={(e) => workspace?.setMaxRows(e.target.value)} /><small>Limits the rows returned for each analysis.</small></label><label className="setting-field"><span>Table density</span><Select value={density} onValueChange={setDensity}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="compact">Compact</SelectItem></SelectContent></Select></label><div className="safety-note"><ShieldCheck size={16} /><span><strong>SQL safety validation stays enabled.</strong><small>Queries are validated by the backend before execution.</small></span></div></section>
+      <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">QUERY DEFAULTS</span><h3>Analysis preferences</h3></div></div><label className="setting-field"><span>Selected dataset</span><Input value={workspace?.dataset || "No dataset selected"} readOnly /><small>Change the selected dataset from the workspace header.</small></label><label className="setting-field"><span>Maximum result rows</span><Input type="number" min="1" value={workspace?.maxRows ?? "100"} onChange={(e) => workspace?.setMaxRows(e.target.value)} /><small>Limits the rows returned for each analysis.</small></label><label className="setting-field"><span>Table density</span><Select value={workspace?.density ?? "comfortable"} onValueChange={(value) => workspace?.setDensity(value as "comfortable" | "compact")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="compact">Compact</SelectItem></SelectContent></Select></label><div className="safety-note"><ShieldCheck size={16} /><span><strong>SQL safety validation stays enabled.</strong><small>Queries are validated by the backend before execution.</small></span></div></section>
       <section className="surface-panel settings-section app-info"><div className="section-heading"><div><span className="section-kicker">ABOUT</span><h3>Application information</h3></div></div><div className="info-row"><span>Application</span><strong>Data Analyst Agent</strong></div><div className="info-row"><span>Version</span><strong>0.1.0 · Preview</strong></div><div className="info-row"><span>Backend API</span><strong>FastAPI-compatible REST</strong></div><div className="info-row"><span>LLM credentials</span><strong>Managed by backend</strong></div></section></div>
   </div>;
 }
