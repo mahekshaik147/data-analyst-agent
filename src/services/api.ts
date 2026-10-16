@@ -119,7 +119,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
-  schema: () => request<DatasetSchema>("/api/schema"),
+  schema: (dataset?: string) => request<DatasetSchema>(`/api/schema${dataset ? `?dataset=${encodeURIComponent(dataset)}` : ""}`),
   datasets: () => request<Dataset[] | { datasets: Dataset[] }>("/api/datasets"),
   analyze: (body: AnalysisRequest, signal?: AbortSignal) =>
     request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), ...(signal ? { signal } : {}) }),

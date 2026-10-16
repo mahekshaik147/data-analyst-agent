@@ -6,7 +6,7 @@ import {
   RefreshCw, Search, Send, Settings2, ShieldCheck, Sparkles, SquareTerminal,
   Sun, Table2, X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -26,6 +26,17 @@ const navItems = [
   { to: "/settings", title: "Settings", icon: Settings2 },
 ] as const;
 
+type WorkspaceConfig = {
+  dataset: string;
+  setDataset: (dataset: string) => void;
+  maxRows: string;
+  setMaxRows: (rows: string) => void;
+};
+const WorkspaceConfigContext = createContext<WorkspaceConfig | null>(null);
+function useWorkspaceConfig() {
+  return useContext(WorkspaceConfigContext);
+}
+
 export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const path = useRouterState({ select: (state) => state.location.pathname });
   const [menuOpen, setMenuOpen] = useState(false);
@@ -33,6 +44,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const [health, setHealth] = useState<"loading" | "online" | "offline">("loading");
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [dataset, setDataset] = useState("northwind");
+  const [maxRows, setMaxRows] = useState("100");
   const [connectionError, setConnectionError] = useState("");
 
   useEffect(() => {
@@ -75,6 +87,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
         </div>
       </aside>
       {menuOpen && <button className="mobile-scrim" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
+      <WorkspaceConfigContext.Provider value={{ dataset, setDataset, maxRows, setMaxRows }}>
       <main className="workspace-main">
         <header className="topbar">
           <div className="topbar-title"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle navigation"><Menu size={19} /></Button><div><div className="breadcrumb">WORKSPACE <span>/</span> {pageTitle.toUpperCase()}</div><h1>{pageTitle}</h1></div></div>
@@ -87,6 +100,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
         </header>
         <div className="page-content">{children ?? <Outlet />}</div>
       </main>
+      </WorkspaceConfigContext.Provider>
     </div>
   );
 }
@@ -101,12 +115,13 @@ const questions = [
 ];
 
 export function OverviewPage() {
+  const workspace = useWorkspaceConfig();
   const [health, setHealth] = useState<"loading" | "online" | "offline">("loading");
   const [schema, setSchema] = useState<DatasetSchema | null>(null);
   useEffect(() => {
     void api.health().then(() => setHealth("online")).catch(() => setHealth("offline"));
-    void api.schema().then(setSchema).catch(() => setSchema(null));
-  }, []);
+    void api.schema(workspace?.dataset).then(setSchema).catch(() => setSchema(null));
+  }, [workspace?.dataset]);
   return <div className="overview-page">
     <section className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line" /> ANALYTICS WORKSPACE</div><h2>Your data. Your questions.<br /><span>Intelligent insights.</span></h2><p>Explore business data using natural language, SQL, and interactive visualizations.</p><div className="welcome-cta"><Button asChild><Link to="/analyst" search={{}}><Sparkles size={16} /> Start an analysis <span className="button-arrow">→</span></Link></Button><span className={`workspace-connection ${health}`}><span className="connection-dot" />{health === "online" ? "Data source connected" : health === "loading" ? "Checking data source" : "Waiting for backend"}</span></div></div><div className="welcome-art" aria-hidden="true"><div className="art-grid"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div><div className="art-orbit"><div className="art-core"><Activity size={23} /></div><i /><i /><i /></div><div className="art-note note-top"><span className="note-dot" /> Live schema</div><div className="art-note note-bottom"><BarChart3 size={14} /> Natural language → SQL</div></div></section>
     <section className="kpi-grid" aria-label="Workspace metrics">
@@ -132,6 +147,7 @@ type ChatMessage = { question: string; response?: AnalysisResponse; error?: stri
 type ResultTab = "overview" | "sql" | "table" | "chart";
 
 export function AnalystPage() {
+  const workspace = useWorkspaceConfig();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -152,7 +168,7 @@ export function AnalystPage() {
     setActiveIndex(index);
     setTab("overview");
     try {
-      const response = await api.analyze({ question: trimmed }, aborter.signal);
+      const response = await api.analyze({ question: trimmed, dataset: workspace?.dataset, max_rows: Number(workspace?.maxRows ?? 100) }, aborter.signal);
       setMessages((current) => current.map((item, i) => i === index ? { question: trimmed, response } : item));
     } catch (error) {
       const message = error instanceof Error ? error.message : "The analysis could not be completed.";
@@ -206,14 +222,15 @@ function AnalysisResult({ result, tab, setTab, chartType, setChartType }: { resu
 }
 
 export function DatasetPage() {
+  const workspace = useWorkspaceConfig();
   const [schema, setSchema] = useState<DatasetSchema | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
   const [health, setHealth] = useState("checking");
-  async function load() { setLoading(true); setError(""); try { const data = await api.schema(); setSchema(data); setSelected((current) => current || data.tables[0]?.name || ""); setHealth("Connected"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load schema."); setHealth("Offline"); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, []);
+  async function load() { setLoading(true); setError(""); try { const data = await api.schema(workspace?.dataset); setSchema(data); setSelected((current) => current || data.tables[0]?.name || ""); setHealth("Connected"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load schema."); setHealth("Offline"); } finally { setLoading(false); } }
+  useEffect(() => { void load(); }, [workspace?.dataset]);
   const tables = schema?.tables.filter((table) => table.name.toLowerCase().includes(search.toLowerCase())) ?? [];
   const current = schema?.tables.find((table) => table.name === selected);
   return <div className="subpage"><PageIntro eyebrow="LIVE DATABASE SCHEMA" title="Dataset Explorer" description="Browse the tables, columns, and sample records available in your connected database." action={<Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw size={14} /> Refresh schema</Button>} />
@@ -239,14 +256,14 @@ export function EvaluationPage() {
 }
 
 export function SettingsPage() {
+  const workspace = useWorkspaceConfig();
   const [health, setHealth] = useState<"idle" | "checking" | "connected" | "failed">("idle");
   const [message, setMessage] = useState("");
-  const [maxRows, setMaxRows] = useState("100");
   const [density, setDensity] = useState("comfortable");
   async function testConnection() { setHealth("checking"); setMessage(""); try { const result = await api.health(); setHealth("connected"); setMessage(`Connection successful${result.database ? ` · ${result.database}` : ""}.`); } catch (caught) { setHealth("failed"); setMessage(caught instanceof Error ? caught.message : "Could not reach the backend."); } }
   return <div className="subpage"><PageIntro eyebrow="WORKSPACE PREFERENCES" title="Settings" description="Configure the API connection and your analysis display preferences." />
     <div className="settings-layout"><section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">CONNECTION</span><h3>Backend API</h3></div><div className={`settings-connection ${health}`}><span className="connection-dot" />{health === "connected" ? "Connected" : health === "checking" ? "Testing" : health === "failed" ? "Unavailable" : "Not tested"}</div></div><label className="setting-field"><span>Backend API URL</span><Input value={apiBaseUrl() || "Not configured · set VITE_API_BASE_URL"} readOnly /></label><p className="field-hint">Set <code>VITE_API_BASE_URL</code> in your environment to point to the Python service.</p><Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={health === "checking"}>{health === "checking" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} Test connection</Button>{message && <p className={`connection-message ${health}`}>{message}</p>}</section>
-      <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">QUERY DEFAULTS</span><h3>Analysis preferences</h3></div></div><label className="setting-field"><span>Selected dataset</span><Input value="Selected in the workspace header" readOnly /><small>Choose a dataset from the selector at the top of the page.</small></label><label className="setting-field"><span>Maximum result rows</span><Input type="number" min="1" max="1000" value={maxRows} onChange={(e) => setMaxRows(e.target.value)} /><small>Limits the rows shown in analysis results.</small></label><label className="setting-field"><span>Table density</span><Select value={density} onValueChange={setDensity}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="compact">Compact</SelectItem></SelectContent></Select></label><div className="safety-note"><ShieldCheck size={16} /><span><strong>SQL safety validation stays enabled.</strong><small>Queries are validated by the backend before execution.</small></span></div></section>
+      <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">QUERY DEFAULTS</span><h3>Analysis preferences</h3></div></div><label className="setting-field"><span>Selected dataset</span><Input value={workspace?.dataset ?? "Not selected"} readOnly /><small>Change the selected dataset from the workspace header.</small></label><label className="setting-field"><span>Maximum result rows</span><Input type="number" min="1" max="1000" value={workspace?.maxRows ?? "100"} onChange={(e) => workspace?.setMaxRows(e.target.value)} /><small>Limits the rows returned for each analysis.</small></label><label className="setting-field"><span>Table density</span><Select value={density} onValueChange={setDensity}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="compact">Compact</SelectItem></SelectContent></Select></label><div className="safety-note"><ShieldCheck size={16} /><span><strong>SQL safety validation stays enabled.</strong><small>Queries are validated by the backend before execution.</small></span></div></section>
       <section className="surface-panel settings-section app-info"><div className="section-heading"><div><span className="section-kicker">ABOUT</span><h3>Application information</h3></div></div><div className="info-row"><span>Application</span><strong>Data Analyst Agent</strong></div><div className="info-row"><span>Version</span><strong>0.1.0 · Preview</strong></div><div className="info-row"><span>Backend API</span><strong>FastAPI-compatible REST</strong></div><div className="info-row"><span>LLM credentials</span><strong>Managed by backend</strong></div></section></div>
   </div>;
 }
