@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { DatasetPage, WorkspaceLayout } from "@/components/analytics/workspace";
+import { DatasetPage } from "@/components/analytics/workspace";
 
 export const Route = createFileRoute("/datasets")({
   head: () => ({ meta: [
@@ -10,5 +10,5 @@ export const Route = createFileRoute("/datasets")({
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
   ] }),
-  component: () => <WorkspaceLayout><DatasetPage /></WorkspaceLayout>,
+  component: DatasetPage,
 });

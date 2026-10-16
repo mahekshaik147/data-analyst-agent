@@ -6,7 +6,7 @@ import {
   RefreshCw, Search, Send, Settings2, ShieldCheck, Sparkles, SquareTerminal,
   Sun, Table2, X,
 } from "lucide-react";
-import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -26,6 +26,19 @@ const navItems = [
   { to: "/settings", title: "Settings", icon: Settings2 },
 ] as const;
 
+type WorkspaceConfig = {
+  dataset: string;
+  setDataset: (dataset: string) => void;
+  maxRows: string;
+  setMaxRows: (rows: string) => void;
+  density: "comfortable" | "compact";
+  setDensity: (density: "comfortable" | "compact") => void;
+};
+const WorkspaceConfigContext = createContext<WorkspaceConfig | null>(null);
+function useWorkspaceConfig() {
+  return useContext(WorkspaceConfigContext);
+}
+
 export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const path = useRouterState({ select: (state) => state.location.pathname });
   const [menuOpen, setMenuOpen] = useState(false);
@@ -33,10 +46,12 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const [health, setHealth] = useState<"loading" | "online" | "offline">("loading");
   const [datasets, setDatasets] = useState<Dataset[]>([]);
   const [dataset, setDataset] = useState("northwind");
+  const [maxRows, setMaxRows] = useState("100");
+  const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [connectionError, setConnectionError] = useState("");
 
   useEffect(() => {
-    void api.health().then((value) => { setHealth(value.status === "ok" || value.status === "healthy" ? "online" : "online"); setConnectionError(""); }).catch(() => { setHealth("offline"); setConnectionError("Backend unavailable"); });
+    void api.health().then((value) => { setHealth(["ok", "healthy", "connected", "up"].includes(value.status.toLowerCase()) ? "online" : "offline"); setConnectionError(""); }).catch(() => { setHealth("offline"); setConnectionError("Backend unavailable"); });
     void api.datasets().then((value) => {
       const entries = Array.isArray(value) ? value : value.datasets;
       setDatasets(entries);
@@ -53,6 +68,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   }
 
   const pageTitle = navItems.find((item) => item.to === path)?.title ?? "Overview";
+  const workspaceConfig = useMemo(() => ({ dataset, setDataset, maxRows, setMaxRows, density, setDensity }), [dataset, maxRows, density]);
   return (
     <div className="workspace-shell">
       <aside className={`workspace-sidebar ${menuOpen ? "sidebar-open" : ""}`}>
@@ -60,7 +76,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
           <span className="brand-mark"><BarChart3 size={18} strokeWidth={2.3} /></span>
           <span className="brand-copy"><strong>Data Analyst</strong><small>AGENT WORKSPACE</small></span>
         </Link>
-        <Button asChild className="new-analysis"><Link to="/analyst"><Plus size={16} /> New analysis</Link></Button>
+        <Button asChild className="new-analysis"><Link to="/analyst" search={{}}><Plus size={16} /> New analysis</Link></Button>
         <div className="nav-caption">WORKSPACE</div>
         <nav className="side-nav" aria-label="Main navigation">
           {navItems.map((item) => {
@@ -70,16 +86,17 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
         </nav>
         <div className="sidebar-bottom">
           <div className="connection-box"><span className={`connection-dot ${health}`} /><div><strong>{health === "online" ? "Backend connected" : health === "loading" ? "Connecting…" : "Backend offline"}</strong><small>{connectionError || apiBaseUrl() || "API URL not configured"}</small></div><span className="connection-pulse" /></div>
-          <div className="sidebar-dataset"><Database size={15} /><span>{datasets.find((entry) => entry.id === dataset)?.name ?? "Northwind"}</span><ChevronDown size={14} /></div>
-          <div className="profile-row"><div className="profile-avatar">MA</div><div><strong>Analyst</strong><small>Workspace user</small></div><button className="icon-button profile-menu" title="Profile options" aria-label="Profile options"><Menu size={16} /></button></div>
+          <div className="sidebar-dataset"><Database size={15} /><span>{datasets.find((entry) => entry.id === dataset)?.name ?? "No dataset selected"}</span><ChevronDown size={14} /></div>
+          <div className="profile-row"><div className="profile-avatar">MA</div><div><strong>Analyst</strong><small>Workspace user</small></div><Link to="/settings" className="icon-button profile-menu" title="Open settings" aria-label="Open settings"><Settings2 size={16} /></Link></div>
         </div>
       </aside>
       {menuOpen && <button className="mobile-scrim" onClick={() => setMenuOpen(false)} aria-label="Close navigation" />}
+      <WorkspaceConfigContext.Provider value={workspaceConfig}>
       <main className="workspace-main">
         <header className="topbar">
           <div className="topbar-title"><Button variant="ghost" size="icon" className="mobile-menu" onClick={() => setMenuOpen(!menuOpen)} aria-label="Toggle navigation"><Menu size={19} /></Button><div><div className="breadcrumb">WORKSPACE <span>/</span> {pageTitle.toUpperCase()}</div><h1>{pageTitle}</h1></div></div>
           <div className="topbar-actions">
-            <Select value={dataset} onValueChange={setDataset}><SelectTrigger className="dataset-select"><Database size={15} /><SelectValue placeholder="Select dataset" /></SelectTrigger><SelectContent>{datasets.length ? datasets.map((entry) => <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>) : <SelectItem value="northwind">Northwind sample</SelectItem>}</SelectContent></Select>
+            <Select value={dataset} onValueChange={setDataset} disabled={!datasets.length}><SelectTrigger className="dataset-select"><Database size={15} /><SelectValue placeholder="No dataset" /></SelectTrigger><SelectContent>{datasets.map((entry) => <SelectItem key={entry.id} value={entry.id}>{entry.name}</SelectItem>)}</SelectContent></Select>
             <span className={`header-status ${health}`}><span className="connection-dot" /> <span>{health === "online" ? "Connected" : health === "loading" ? "Checking" : "Offline"}</span></span>
             <Button variant="ghost" size="icon" className="theme-toggle" onClick={toggleTheme} aria-label={dark ? "Switch to light theme" : "Switch to dark theme"} title="Toggle theme">{dark ? <Sun size={17} /> : <Moon size={17} />}</Button>
             <div className="profile-avatar header-avatar" aria-label="Analyst profile">MA</div>
@@ -87,6 +104,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
         </header>
         <div className="page-content">{children ?? <Outlet />}</div>
       </main>
+      </WorkspaceConfigContext.Provider>
     </div>
   );
 }
@@ -101,14 +119,15 @@ const questions = [
 ];
 
 export function OverviewPage() {
+  const workspace = useWorkspaceConfig();
   const [health, setHealth] = useState<"loading" | "online" | "offline">("loading");
   const [schema, setSchema] = useState<DatasetSchema | null>(null);
   useEffect(() => {
     void api.health().then(() => setHealth("online")).catch(() => setHealth("offline"));
-    void api.schema().then(setSchema).catch(() => setSchema(null));
-  }, []);
+    void api.schema(workspace?.dataset).then(setSchema).catch(() => setSchema(null));
+  }, [workspace?.dataset]);
   return <div className="overview-page">
-    <section className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line" /> ANALYTICS WORKSPACE</div><h2>Your data. Your questions.<br /><span>Intelligent insights.</span></h2><p>Explore business data using natural language, SQL, and interactive visualizations.</p><div className="welcome-cta"><Button asChild><Link to="/analyst"><Sparkles size={16} /> Start an analysis <span className="button-arrow">→</span></Link></Button><span className={`workspace-connection ${health}`}><span className="connection-dot" />{health === "online" ? "Data source connected" : health === "loading" ? "Checking data source" : "Waiting for backend"}</span></div></div><div className="welcome-art" aria-hidden="true"><div className="art-grid"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div><div className="art-orbit"><div className="art-core"><Activity size={23} /></div><i /><i /><i /></div><div className="art-note note-top"><span className="note-dot" /> Live schema</div><div className="art-note note-bottom"><BarChart3 size={14} /> Natural language → SQL</div></div></section>
+    <section className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line" /> ANALYTICS WORKSPACE</div><h2>Your data. Your questions.<br /><span>Intelligent insights.</span></h2><p>Explore business data using natural language, SQL, and interactive visualizations.</p><div className="welcome-cta"><Button asChild><Link to="/analyst" search={{}}><Sparkles size={16} /> Start an analysis <span className="button-arrow">→</span></Link></Button><span className={`workspace-connection ${health}`}><span className="connection-dot" />{health === "online" ? "Data source connected" : health === "loading" ? "Checking data source" : "Waiting for backend"}</span></div></div><div className="welcome-art" aria-hidden="true"><div className="art-grid"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div><div className="art-orbit"><div className="art-core"><Activity size={23} /></div><i /><i /><i /></div><div className="art-note note-top"><span className="note-dot" /> Live schema</div><div className="art-note note-bottom"><BarChart3 size={14} /> Natural language → SQL</div></div></section>
     <section className="kpi-grid" aria-label="Workspace metrics">
       <Metric icon={<Database size={17} />} label="Tables discovered" value={schema ? String(schema.tables.length) : "—"} note={schema ? "Live schema" : "Connect backend to load"} accent="blue" />
       <Metric icon={<MessageSquareText size={17} />} label="Queries run" value="—" note="Available with backend" accent="teal" />
@@ -116,9 +135,9 @@ export function OverviewPage() {
       <Metric icon={<Clock3 size={17} />} label="Average query time" value="—" note="Available with backend" accent="amber" />
     </section>
     <div className="overview-grid">
-      <section className="surface-panel recent-panel"><div className="section-heading"><div><span className="section-kicker">WORKSPACE</span><h3>Recent analyses</h3></div><Link to="/analyst" className="text-link">Open analyst <span>→</span></Link></div><div className="empty-activity"><div className="empty-icon"><MessageSquareText size={20} /></div><strong>No analyses yet</strong><p>Your completed analyses will appear here.</p><Button variant="outline" size="sm" asChild><Link to="/analyst"><Plus size={14} /> Start your first analysis</Link></Button></div></section>
-      <section className="surface-panel dataset-summary"><div className="section-heading"><div><span className="section-kicker">DATA SOURCE</span><h3>Dataset summary</h3></div><Link to="/datasets" className="icon-link" aria-label="Open dataset explorer"><ArrowUp size={15} /></Link></div><div className="dataset-card"><div className="dataset-icon"><Database size={18} /></div><div><strong>{schema?.dataset ?? "Northwind sample database"}</strong><p>{schema ? `${schema.tables.length} tables discovered from the live schema` : "Schema details load when the backend is connected"}</p></div><span className={`source-state ${health}`}>{health === "online" ? "READY" : health === "loading" ? "CHECKING" : "OFFLINE"}</span></div><div className="dataset-facts"><span><Table2 size={14} /> Tables <strong>{schema ? schema.tables.length : "—"}</strong></span><span><Activity size={14} /> Connection <strong>{health === "online" ? "Active" : health === "loading" ? "Checking" : "Offline"}</strong></span></div></section>
-      <section className="surface-panel questions-panel"><div className="section-heading"><div><span className="section-kicker">GET STARTED</span><h3>Questions to explore</h3></div><CircleHelp size={17} className="muted-icon" /></div><div className="faq-list">{questions.slice(0, 4).map((question, index) => <Link key={question} to="/analyst" search={{ question }} className="faq-item"><span className="faq-index">0{index + 1}</span><span>{question}</span><span className="faq-arrow">↗</span></Link>)}</div><Link to="/analyst" className="more-questions">Explore all suggested questions <span>→</span></Link></section>
+      <section className="surface-panel recent-panel"><div className="section-heading"><div><span className="section-kicker">WORKSPACE</span><h3>Recent analyses</h3></div><Link to="/analyst" search={{}} className="text-link">Open analyst <span>→</span></Link></div><div className="empty-activity"><div className="empty-icon"><MessageSquareText size={20} /></div><strong>No analyses yet</strong><p>Your completed analyses will appear here.</p><Button variant="outline" size="sm" asChild><Link to="/analyst" search={{}}><Plus size={14} /> Start your first analysis</Link></Button></div></section>
+      <section className="surface-panel dataset-summary"><div className="section-heading"><div><span className="section-kicker">DATA SOURCE</span><h3>Dataset summary</h3></div><Link to="/datasets" className="icon-link" aria-label="Open dataset explorer"><ArrowUp size={15} /></Link></div><div className="dataset-card"><div className="dataset-icon"><Database size={18} /></div><div><strong>{schema?.dataset ?? "No dataset connected"}</strong><p>{schema ? `${schema.tables.length} tables discovered from the live schema` : "Schema details load when the backend is connected"}</p></div><span className={`source-state ${health}`}>{health === "online" ? "READY" : health === "loading" ? "CHECKING" : "OFFLINE"}</span></div><div className="dataset-facts"><span><Table2 size={14} /> Tables <strong>{schema ? schema.tables.length : "—"}</strong></span><span><Activity size={14} /> Connection <strong>{health === "online" ? "Active" : health === "loading" ? "Checking" : "Offline"}</strong></span></div></section>
+      <section className="surface-panel questions-panel"><div className="section-heading"><div><span className="section-kicker">GET STARTED</span><h3>Questions to explore</h3></div><CircleHelp size={17} className="muted-icon" /></div><div className="faq-list">{questions.slice(0, 4).map((question, index) => <Link key={question} to="/analyst" search={{ question }} className="faq-item"><span className="faq-index">0{index + 1}</span><span>{question}</span><span className="faq-arrow">↗</span></Link>)}</div><Link to="/analyst" search={{}} className="more-questions">Explore all suggested questions <span>→</span></Link></section>
       <section className="activity-panel"><div className="activity-copy"><span className="section-kicker">BUILT FOR CLARITY</span><h3>From question<br />to confident action.</h3><p>Bring your business data into focus with a workflow built around transparent SQL and real results.</p><div className="activity-steps"><span><i>01</i> Ask in plain English</span><span><i>02</i> Inspect generated SQL</span><span><i>03</i> Share clear results</span></div></div><div className="activity-graphic" aria-hidden="true"><div className="graph-label">QUERY FLOW <span>●</span></div><div className="flow-line"><div className="flow-node"><MessageSquareText size={16} /></div><div className="flow-dash" /><div className="flow-node"><SquareTerminal size={16} /></div><div className="flow-dash" /><div className="flow-node flow-node-accent"><BarChart3 size={16} /></div></div><div className="flow-caption"><span>QUESTION</span><span>SQL</span><span>INSIGHT</span></div></div></section>
     </div>
   </div>;
@@ -132,6 +151,7 @@ type ChatMessage = { question: string; response?: AnalysisResponse; error?: stri
 type ResultTab = "overview" | "sql" | "table" | "chart";
 
 export function AnalystPage() {
+  const workspace = useWorkspaceConfig();
   const [question, setQuestion] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [activeIndex, setActiveIndex] = useState(-1);
@@ -152,7 +172,7 @@ export function AnalystPage() {
     setActiveIndex(index);
     setTab("overview");
     try {
-      const response = await api.analyze({ question: trimmed }, aborter.signal);
+      const response = await api.analyze({ question: trimmed, dataset: workspace?.dataset, max_rows: Number(workspace?.maxRows ?? 100) }, aborter.signal);
       setMessages((current) => current.map((item, i) => i === index ? { question: trimmed, response } : item));
     } catch (error) {
       const message = error instanceof Error ? error.message : "The analysis could not be completed.";
@@ -193,7 +213,9 @@ function AnalysisResult({ result, tab, setTab, chartType, setChartType }: { resu
     const link = document.createElement("a"); link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" })); link.download = "analysis-results.csv"; link.click(); URL.revokeObjectURL(link.href);
   }
   const rows = result.result.rows ?? [];
-  const chartData = rows.filter((row) => columns.length >= 2 && typeof row[columns[1]] === "number").map((row) => ({ name: String(row[columns[0]] ?? ""), value: Number(row[columns[1]]) }));
+  const labelColumn = columns.at(0);
+  const valueColumn = columns.at(1);
+  const chartData = labelColumn && valueColumn ? rows.filter((row) => typeof row[valueColumn] === "number").map((row) => ({ name: String(row[labelColumn] ?? ""), value: Number(row[valueColumn]) })) : [];
   const tabs: { id: ResultTab; label: string; icon: typeof Activity }[] = [{ id: "overview", label: "Overview", icon: Activity }, { id: "sql", label: "SQL query", icon: SquareTerminal }, { id: "table", label: "Data table", icon: Table2 }, { id: "chart", label: "Visualization", icon: BarChart3 }];
   return <div className="result-card"><div className="result-topline"><div><span className="result-label"><span className="result-live-dot" /> ANALYSIS RESULT</span><h3>Here’s what I found</h3></div><Badge variant="secondary" className="result-status"><Check size={12} /> {result.status ?? "Query complete"}</Badge></div><div className="result-tabs" role="tablist">{tabs.map((item) => <button key={item.id} role="tab" aria-selected={tab === item.id} className={`result-tab ${tab === item.id ? "active" : ""}`} onClick={() => setTab(item.id)}><item.icon size={15} /> {item.label}</button>)}</div>
     {tab === "overview" && <div className="result-overview"><div className="answer-prose"><span className="section-kicker">ANSWER</span><p>{result.answer}</p></div>{result.findings?.length ? <div className="finding-list"><span className="section-kicker">KEY FINDINGS</span>{result.findings.map((finding, i) => <div className="finding-row" key={`${finding}-${i}`}><span>{String(i + 1).padStart(2, "0")}</span><p>{finding}</p></div>)}</div> : null}<div className="result-meta"><span><Database size={14} /> {result.result.row_count ?? rows.length} rows returned</span><span><Clock3 size={14} /> {result.execution_time_ms ?? result.result.execution_time_ms ?? "—"}{result.execution_time_ms || result.result.execution_time_ms ? " ms" : ""}</span><span><ShieldCheck size={14} /> SQL executed</span></div></div>}
@@ -204,14 +226,15 @@ function AnalysisResult({ result, tab, setTab, chartType, setChartType }: { resu
 }
 
 export function DatasetPage() {
+  const workspace = useWorkspaceConfig();
   const [schema, setSchema] = useState<DatasetSchema | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
   const [health, setHealth] = useState("checking");
-  async function load() { setLoading(true); setError(""); try { const data = await api.schema(); setSchema(data); setSelected((current) => current || data.tables[0]?.name || ""); setHealth("Connected"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load schema."); setHealth("Offline"); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, []);
+  async function load() { setLoading(true); setError(""); try { const data = await api.schema(workspace?.dataset); setSchema(data); setSelected((current) => current || data.tables[0]?.name || ""); setHealth("Connected"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load schema."); setHealth("Offline"); } finally { setLoading(false); } }
+  useEffect(() => { void load(); }, [workspace?.dataset]);
   const tables = schema?.tables.filter((table) => table.name.toLowerCase().includes(search.toLowerCase())) ?? [];
   const current = schema?.tables.find((table) => table.name === selected);
   return <div className="subpage"><PageIntro eyebrow="LIVE DATABASE SCHEMA" title="Dataset Explorer" description="Browse the tables, columns, and sample records available in your connected database." action={<Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw size={14} /> Refresh schema</Button>} />
@@ -237,14 +260,14 @@ export function EvaluationPage() {
 }
 
 export function SettingsPage() {
+  const workspace = useWorkspaceConfig();
   const [health, setHealth] = useState<"idle" | "checking" | "connected" | "failed">("idle");
   const [message, setMessage] = useState("");
-  const [maxRows, setMaxRows] = useState("100");
-  const [density, setDensity] = useState("comfortable");
+  useEffect(() => { document.documentElement.classList.toggle("compact-tables", workspace?.density === "compact"); }, [workspace?.density]);
   async function testConnection() { setHealth("checking"); setMessage(""); try { const result = await api.health(); setHealth("connected"); setMessage(`Connection successful${result.database ? ` · ${result.database}` : ""}.`); } catch (caught) { setHealth("failed"); setMessage(caught instanceof Error ? caught.message : "Could not reach the backend."); } }
   return <div className="subpage"><PageIntro eyebrow="WORKSPACE PREFERENCES" title="Settings" description="Configure the API connection and your analysis display preferences." />
     <div className="settings-layout"><section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">CONNECTION</span><h3>Backend API</h3></div><div className={`settings-connection ${health}`}><span className="connection-dot" />{health === "connected" ? "Connected" : health === "checking" ? "Testing" : health === "failed" ? "Unavailable" : "Not tested"}</div></div><label className="setting-field"><span>Backend API URL</span><Input value={apiBaseUrl() || "Not configured · set VITE_API_BASE_URL"} readOnly /></label><p className="field-hint">Set <code>VITE_API_BASE_URL</code> in your environment to point to the Python service.</p><Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={health === "checking"}>{health === "checking" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} Test connection</Button>{message && <p className={`connection-message ${health}`}>{message}</p>}</section>
-      <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">QUERY DEFAULTS</span><h3>Analysis preferences</h3></div></div><label className="setting-field"><span>Selected dataset</span><Input value="Selected in the workspace header" readOnly /><small>Choose a dataset from the selector at the top of the page.</small></label><label className="setting-field"><span>Maximum result rows</span><Input type="number" min="1" max="1000" value={maxRows} onChange={(e) => setMaxRows(e.target.value)} /><small>Limits the rows shown in analysis results.</small></label><label className="setting-field"><span>Table density</span><Select value={density} onValueChange={setDensity}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="compact">Compact</SelectItem></SelectContent></Select></label><div className="safety-note"><ShieldCheck size={16} /><span><strong>SQL safety validation stays enabled.</strong><small>Queries are validated by the backend before execution.</small></span></div></section>
+      <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">QUERY DEFAULTS</span><h3>Analysis preferences</h3></div></div><label className="setting-field"><span>Selected dataset</span><Input value={workspace?.dataset || "No dataset selected"} readOnly /><small>Change the selected dataset from the workspace header.</small></label><label className="setting-field"><span>Maximum result rows</span><Input type="number" min="1" value={workspace?.maxRows ?? "100"} onChange={(e) => workspace?.setMaxRows(e.target.value)} /><small>Limits the rows returned for each analysis.</small></label><label className="setting-field"><span>Table density</span><Select value={workspace?.density ?? "comfortable"} onValueChange={(value) => workspace?.setDensity(value as "comfortable" | "compact")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="compact">Compact</SelectItem></SelectContent></Select></label><div className="safety-note"><ShieldCheck size={16} /><span><strong>SQL safety validation stays enabled.</strong><small>Queries are validated by the backend before execution.</small></span></div></section>
       <section className="surface-panel settings-section app-info"><div className="section-heading"><div><span className="section-kicker">ABOUT</span><h3>Application information</h3></div></div><div className="info-row"><span>Application</span><strong>Data Analyst Agent</strong></div><div className="info-row"><span>Version</span><strong>0.1.0 · Preview</strong></div><div className="info-row"><span>Backend API</span><strong>FastAPI-compatible REST</strong></div><div className="info-row"><span>LLM credentials</span><strong>Managed by backend</strong></div></section></div>
   </div>;
 }

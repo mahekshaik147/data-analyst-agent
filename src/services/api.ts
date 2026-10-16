@@ -76,12 +76,12 @@ export interface EvaluationReport {
     average_latency_ms?: number;
     total_test_cases?: number;
   };
-  history?: Record<string, unknown>[];
-  failures?: Record<string, unknown>[];
-  difficulty?: Record<string, unknown>[];
+  history?: { created_at?: string; date?: string; total_test_cases?: number; status?: string }[];
+  failures?: { question?: string; name?: string; error?: string; explanation?: string; sql?: string }[];
+  difficulty?: { level?: string; success_rate?: number }[];
 }
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const baseUrl = (import.meta.env["VITE_API_BASE_URL"] ?? "").replace(/\/$/, "");
 const timeoutMs = 15_000;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -119,10 +119,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
-  schema: () => request<DatasetSchema>("/api/schema"),
+  schema: (dataset?: string) => request<DatasetSchema>(`/api/schema${dataset ? `?dataset=${encodeURIComponent(dataset)}` : ""}`),
   datasets: () => request<Dataset[] | { datasets: Dataset[] }>("/api/datasets"),
   analyze: (body: AnalysisRequest, signal?: AbortSignal) =>
-    request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), signal }),
+    request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), ...(signal ? { signal } : {}) }),
   query: (sql: string) => request<SqlResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
   evaluation: () => request<EvaluationReport>("/api/evaluation"),
   runEvaluation: () => request<EvaluationReport>("/api/evaluation/run", { method: "POST", body: "{}" }),

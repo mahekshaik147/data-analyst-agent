@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { WorkspaceLayout, OverviewPage } from "@/components/analytics/workspace";
+import { OverviewPage } from "@/components/analytics/workspace";
 
 export const Route = createFileRoute("/")({
   head: () => ({
@@ -12,5 +12,5 @@ export const Route = createFileRoute("/")({
       { name: "twitter:card", content: "summary_large_image" },
     ],
   }),
-  component: () => <WorkspaceLayout><OverviewPage /></WorkspaceLayout>,
+  component: OverviewPage,
 });
