@@ -76,9 +76,9 @@ export interface EvaluationReport {
     average_latency_ms?: number;
     total_test_cases?: number;
   };
-  history?: Record<string, unknown>[];
-  failures?: Record<string, unknown>[];
-  difficulty?: Record<string, unknown>[];
+  history?: { created_at?: string; date?: string; total_test_cases?: number; status?: string }[];
+  failures?: { question?: string; name?: string; error?: string; explanation?: string; sql?: string }[];
+  difficulty?: { level?: string; success_rate?: number }[];
 }
 
 const baseUrl = (import.meta.env["VITE_API_BASE_URL"] ?? "").replace(/\/$/, "");
