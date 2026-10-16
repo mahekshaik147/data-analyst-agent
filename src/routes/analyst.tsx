@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { AnalystPage, WorkspaceLayout } from "@/components/analytics/workspace";
+import { AnalystPage } from "@/components/analytics/workspace";
 
 export const Route = createFileRoute("/analyst")({
   validateSearch: (search: Record<string, unknown>) => ({ question: typeof search["question"] === "string" ? search["question"] : undefined }),
@@ -11,5 +11,5 @@ export const Route = createFileRoute("/analyst")({
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
   ] }),
-  component: () => <WorkspaceLayout><AnalystPage /></WorkspaceLayout>,
+  component: AnalystPage,
 });

@@ -1,5 +1,5 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { SettingsPage, WorkspaceLayout } from "@/components/analytics/workspace";
+import { SettingsPage } from "@/components/analytics/workspace";
 
 export const Route = createFileRoute("/settings")({
   head: () => ({ meta: [
@@ -10,5 +10,5 @@ export const Route = createFileRoute("/settings")({
     { property: "og:type", content: "website" },
     { name: "twitter:card", content: "summary_large_image" },
   ] }),
-  component: () => <WorkspaceLayout><SettingsPage /></WorkspaceLayout>,
+  component: SettingsPage,
 });
