@@ -81,7 +81,7 @@ export interface EvaluationReport {
   difficulty?: Record<string, unknown>[];
 }
 
-const baseUrl = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const baseUrl = (import.meta.env["VITE_API_BASE_URL"] ?? "").replace(/\/$/, "");
 const timeoutMs = 15_000;
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -122,7 +122,7 @@ export const api = {
   schema: () => request<DatasetSchema>("/api/schema"),
   datasets: () => request<Dataset[] | { datasets: Dataset[] }>("/api/datasets"),
   analyze: (body: AnalysisRequest, signal?: AbortSignal) =>
-    request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), signal }),
+    request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), ...(signal ? { signal } : {}) }),
   query: (sql: string) => request<SqlResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
   evaluation: () => request<EvaluationReport>("/api/evaluation"),
   runEvaluation: () => request<EvaluationReport>("/api/evaluation/run", { method: "POST", body: "{}" }),
