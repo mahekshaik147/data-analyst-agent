@@ -511,3 +511,4 @@
 }
 .compact-tables .data-table td { padding-top: 5px; padding-bottom: 5px; }
 .compact-tables .schema-row { min-height: 28px; }
+@media (max-width: 760px) { .dataset-select > svg:first-child { display: block; } }
