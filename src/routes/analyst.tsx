@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { AnalystPage } from "@/components/analytics/workspace";
 
 export const Route = createFileRoute("/analyst")({
-  validateSearch: (search: Record<string, unknown>) => ({ question: typeof search["question"] === "string" ? search["question"] : undefined }),
+  validateSearch: (search: Record<string, unknown>) => ({ question: typeof search["question"] === "string" ? search["question"] : "" }),
   head: () => ({ meta: [
     { title: "AI Analyst · Data Analyst Agent" },
     { name: "description", content: "Ask questions about your business data and inspect the SQL and results returned by your analytics service." },
