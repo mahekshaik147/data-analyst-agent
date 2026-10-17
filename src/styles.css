@@ -509,3 +509,5 @@
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 }
+.compact-tables .data-table td { padding-top: 5px; padding-bottom: 5px; }
+.compact-tables .schema-row { min-height: 28px; }
