@@ -45,7 +45,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const [dark, setDark] = useState(false);
   const [health, setHealth] = useState<"loading" | "online" | "offline">("loading");
   const [datasets, setDatasets] = useState<Dataset[]>([]);
-  const [dataset, setDataset] = useState("northwind");
+  const [dataset, setDataset] = useState("");
   const [maxRows, setMaxRows] = useState("100");
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [connectionError, setConnectionError] = useState("");
