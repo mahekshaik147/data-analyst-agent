@@ -77,7 +77,13 @@ export interface EvaluationReport {
     total_test_cases?: number;
   };
   history?: { created_at?: string; date?: string; total_test_cases?: number; status?: string }[];
-  failures?: { question?: string; name?: string; error?: string; explanation?: string; sql?: string }[];
+  failures?: {
+    question?: string;
+    name?: string;
+    error?: string;
+    explanation?: string;
+    sql?: string;
+  }[];
   difficulty?: { level?: string; success_rate?: number }[];
 }
 
@@ -119,13 +125,22 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   health: () => request<HealthResponse>("/api/health"),
-  schema: (dataset?: string) => request<DatasetSchema>(`/api/schema${dataset ? `?dataset=${encodeURIComponent(dataset)}` : ""}`),
+  schema: (dataset?: string) =>
+    request<DatasetSchema>(
+      `/api/schema${dataset ? `?dataset=${encodeURIComponent(dataset)}` : ""}`,
+    ),
   datasets: () => request<Dataset[] | { datasets: Dataset[] }>("/api/datasets"),
   analyze: (body: AnalysisRequest, signal?: AbortSignal) =>
-    request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), ...(signal ? { signal } : {}) }),
-  query: (sql: string) => request<SqlResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
+    request<AnalysisResponse>("/api/analyze", {
+      method: "POST",
+      body: JSON.stringify(body),
+      ...(signal ? { signal } : {}),
+    }),
+  query: (sql: string) =>
+    request<SqlResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
   evaluation: () => request<EvaluationReport>("/api/evaluation"),
-  runEvaluation: () => request<EvaluationReport>("/api/evaluation/run", { method: "POST", body: "{}" }),
+  runEvaluation: () =>
+    request<EvaluationReport>("/api/evaluation/run", { method: "POST", body: "{}" }),
 };
 
 export function apiBaseUrl() {
