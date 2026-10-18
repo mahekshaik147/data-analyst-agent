@@ -5,18 +5,16 @@ describe("analytics API service", () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it("sends the requested natural-language analysis to the backend", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValue(
-        new Response(
-          JSON.stringify({
-            answer: "Real response",
-            sql: "SELECT 1",
-            result: { columns: [], rows: [] },
-          }),
-          { status: 200 },
-        ),
-      );
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          answer: "Real response",
+          sql: "SELECT 1",
+          result: { columns: [], rows: [] },
+        }),
+        { status: 200 },
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
     await api.analyze({ question: "Show total sales", dataset: "northwind", max_rows: 25 });
     expect(fetchMock).toHaveBeenCalledWith(
