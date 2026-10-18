@@ -1,3 +1,3 @@
-- [ ] Build the analyst workspace shell and overview.
-- [ ] Add typed API integration and analyst, dataset, evaluation, and settings views.
-- [ ] Add setup documentation, environment example, metadata, and verify flows.
+- [x] Build the analyst workspace shell and overview.
+- [x] Add typed API integration and analyst, dataset, evaluation, and settings views.
+- [x] Add setup documentation, environment example, metadata, and verify flows.
