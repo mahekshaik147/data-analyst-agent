@@ -5,7 +5,13 @@ from datetime import date, timedelta
 from pathlib import Path
 from random import Random
 
-from backend.config import DATASET_DESCRIPTION, DATASET_ID, DATASET_NAME, SAMPLE_ROW_LIMIT
+from backend.config import (
+    DATASET_DESCRIPTION,
+    DATASET_ID,
+    DATASET_NAME,
+    DATASETS,
+    SAMPLE_ROW_LIMIT,
+)
 
 SCHEMA_SQL = """
 PRAGMA foreign_keys = ON;
@@ -112,6 +118,22 @@ def connect_writable(path: Path) -> sqlite3.Connection:
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
+def connect_readonly(path: Path) -> sqlite3.Connection:
+    uri = f"file:{path.resolve().as_posix()}?mode=ro"
+    connection = sqlite3.connect(uri, uri=True, timeout=5)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA query_only = ON")
+    return connection
+
+
+def get_dataset(dataset_id: str | None) -> dict | None:
+    """Return the registry entry for a dataset, or None if unknown or its file is missing."""
+    if dataset_id in (None, ""):
+        dataset_id = DATASET_ID
+    config = DATASETS.get(dataset_id)
+    if config is None or not config["path"].exists():
+        return None
+    return config
 
 def init_database(path: Path) -> None:
     connection = connect_writable(path)
@@ -167,23 +189,37 @@ def _seed(connection: sqlite3.Connection) -> None:
         item_rows,
     )
 
-
 def dataset_catalog() -> list[dict[str, str]]:
-    return [
+    catalog = [
         {
             "id": DATASET_ID,
             "name": DATASET_NAME,
             "description": DATASET_DESCRIPTION,
+            "currency": DATASETS[DATASET_ID]["currency"],
         }
     ]
+    for dataset_id, config in DATASETS.items():
+        if dataset_id != DATASET_ID and config["path"].exists():
+            catalog.append(
+                {
+                    "id": dataset_id,
+                    "name": config["name"],
+                    "description": config["description"],
+                    "currency": config["currency"],
+                }
+            )
+    return catalog
 
 
 def known_dataset(dataset: str | None) -> bool:
     return dataset in (None, "", DATASET_ID)
 
 
-def inspect_schema(path: Path) -> dict:
-    connection = connect_writable(path)
+def inspect_schema(path: Path, dataset_id: str | None = None) -> dict:
+    if dataset_id in (None, DATASET_ID):
+        connection = connect_writable(path)
+    else:
+        connection = connect_readonly(path)
     try:
         table_names = [
             row[0]
@@ -229,7 +265,7 @@ def inspect_schema(path: Path) -> dict:
                 }
             )
         return {
-            "dataset": DATASET_ID,
+                        "dataset": dataset_id or DATASET_ID,
             "tables": tables,
             "relationships": relationships,
         }

@@ -13,15 +13,22 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from backend.analyze import analyze_question
-from backend.config import CORS_ORIGINS, DATABASE_PATH, DATASET_ID, QUERY_TIMEOUT_SECONDS, clamp_max_rows
+from backend.config import (
+    CORS_ORIGINS,
+    DATABASE_PATH,
+    DATASET_ID,
+    DATASETS,
+    QUERY_TIMEOUT_SECONDS,
+    clamp_max_rows,
+)
 from backend.db import dataset_catalog, health_snapshot, init_database, inspect_schema, known_dataset
 from backend.evaluation import current_report, run_evaluation
 from backend.query import QueryExecutionError, execute_readonly
 from backend.sql_safety import UnsafeSqlError
 
-
 class QueryRequest(BaseModel):
     sql: str
+    dataset: str | None = None
 
 
 class AnalyzeRequest(BaseModel):
@@ -73,15 +80,15 @@ def list_datasets():
 
 @app.get("/api/schema")
 def get_schema(dataset: str | None = None):
-    _require_dataset(dataset)
-    return inspect_schema(DATABASE_PATH)
-
+    dataset_id, path = _resolve_dataset(dataset)
+    return inspect_schema(path, dataset_id)
 
 @app.post("/api/query")
 def run_query(body: QueryRequest):
+    _, path = _resolve_dataset(body.dataset)
     try:
         result = execute_readonly(
-            DATABASE_PATH,
+            path,
             body.sql,
             max_rows=clamp_max_rows(None),
             timeout_seconds=QUERY_TIMEOUT_SECONDS,
@@ -101,10 +108,19 @@ def run_query(body: QueryRequest):
 
 @app.post("/api/analyze")
 def run_analyze(body: AnalyzeRequest):
-    _require_dataset(body.dataset)
+    dataset_id, path = _resolve_dataset(body.dataset)
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="A question is required.")
-    return analyze_question(DATABASE_PATH, body.question, body.max_rows)
+    if dataset_id != DATASET_ID:
+        raise HTTPException(
+            status_code=501,
+            detail=(
+                f"Natural-language analysis is not available for the '{dataset_id}' "
+                "dataset yet. Schema inspection and read-only SQL queries work."
+            ),
+        )
+    return analyze_question(path, body.question, body.max_rows)
+   
 
 
 @app.get("/api/evaluation")
@@ -117,7 +133,23 @@ def post_evaluation_run():
     return run_evaluation(DATABASE_PATH)
 
 
-def _require_dataset(dataset: str | None) -> None:
+def _resolve_dataset(dataset: str | None) -> tuple[str, Path]:
+    """Return (dataset_id, database_path) for the requested dataset, or raise 404."""
+    if dataset in (None, ""):
+        dataset = DATASET_ID
+    if dataset == DATASET_ID:
+        return DATASET_ID, DATABASE_PATH
+    config = DATASETS.get(dataset)
+    if config is None or not config["path"].exists():
+        available = ", ".join(
+            [DATASET_ID]
+            + [key for key, value in DATASETS.items() if key != DATASET_ID and value["path"].exists()]
+        )
+        raise HTTPException(
+            status_code=404,
+            detail=f"Unknown dataset '{dataset}'. Available datasets: {available}.",
+        )
+    return dataset, config["path"]
     if not known_dataset(dataset):
         raise HTTPException(
             status_code=404,

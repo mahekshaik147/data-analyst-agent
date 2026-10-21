@@ -31,3 +31,29 @@ CORS_ORIGINS = [
 def clamp_max_rows(requested: int | None) -> int:
     value = MAX_RESULT_ROWS if requested is None else int(requested)
     return max(1, min(ABSOLUTE_MAX_ROWS, value))
+
+    
+OLIST_DATABASE_PATH = Path(
+    os.environ.get("OLIST_DATABASE_PATH", str(DATA_DIR / "olist.db"))
+)
+
+# Registry of selectable datasets, keyed by dataset ID.
+DATASETS = {
+    DATASET_ID: {
+        "id": DATASET_ID,
+        "name": DATASET_NAME,
+        "description": DATASET_DESCRIPTION,
+        "path": DATABASE_PATH,
+        "currency": "USD",
+    },
+    "olist": {
+        "id": "olist",
+        "name": "Olist Brazilian e-commerce",
+        "description": (
+            "Public Brazilian e-commerce data (2016-2018): orders, items, payments, "
+            "reviews, products, sellers. Amounts are in Brazilian reais (BRL)."
+        ),
+        "path": OLIST_DATABASE_PATH,
+        "currency": "BRL",
+    },
+}
