@@ -6,7 +6,7 @@ import {
   RefreshCw, Search, Send, Settings2, ShieldCheck, Sparkles, SquareTerminal,
   Sun, Table2, X,
 } from "lucide-react";
-import { createContext, useContext, useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from "react";
 import {
   Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
@@ -33,6 +33,7 @@ type WorkspaceConfig = {
   setMaxRows: (rows: string) => void;
   density: "comfortable" | "compact";
   setDensity: (density: "comfortable" | "compact") => void;
+  refreshDatasets: () => Promise<Dataset[]>;
 };
 const WorkspaceConfigContext = createContext<WorkspaceConfig | null>(null);
 function useWorkspaceConfig() {
@@ -50,21 +51,32 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [connectionError, setConnectionError] = useState("");
 
-  useEffect(() => {
-    void api.health().then((value) => { setHealth(["ok", "healthy", "connected", "up"].includes(value.status.toLowerCase()) ? "online" : "offline"); setConnectionError(""); }).catch(() => { setHealth("offline"); setConnectionError("Backend unavailable"); });
-    void api.datasets().then((value) => {
+  const refreshDatasets = async () => {
+    try {
+      const value = await api.datasets();
       const entries = Array.isArray(value) ? value : value.datasets ?? [];
       setDatasets(entries);
-      if (entries[0]) {
-        setDataset((current) => current || entries[0].id || "sales");
-        setDataset(entries[0].id);
-      } else {
+      if (!entries.length) {
         setDataset("sales");
+        return entries;
       }
-    }).catch(() => {
+      setDataset((current) => {
+        if (current && entries.some((entry) => entry.id === current)) {
+          return current;
+        }
+        return entries[0].id || "sales";
+      });
+      return entries;
+    } catch {
       setDatasets([]);
       setDataset("sales");
-    });
+      return [] as Dataset[];
+    }
+  };
+
+  useEffect(() => {
+    void api.health().then((value) => { setHealth(["ok", "healthy", "connected", "up"].includes(value.status.toLowerCase()) ? "online" : "offline"); setConnectionError(""); }).catch(() => { setHealth("offline"); setConnectionError("Backend unavailable"); });
+    void refreshDatasets();
   }, []);
 
   function toggleTheme() {
@@ -76,7 +88,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   }
 
   const pageTitle = navItems.find((item) => item.to === path)?.title ?? "Overview";
-  const workspaceConfig = useMemo(() => ({ dataset, setDataset, maxRows, setMaxRows, density, setDensity }), [dataset, maxRows, density]);
+  const workspaceConfig = useMemo(() => ({ dataset, setDataset, maxRows, setMaxRows, density, setDensity, refreshDatasets }), [dataset, maxRows, density]);
   return (
     <div className="workspace-shell">
       <aside className={`workspace-sidebar ${menuOpen ? "sidebar-open" : ""}`}>
@@ -241,8 +253,25 @@ export function DatasetPage() {
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState("");
   const [health, setHealth] = useState("checking");
-  async function load() { setLoading(true); setError(""); try { const data = await api.schema(workspace?.dataset); setSchema(data); setSelected((current) => current || data.tables[0]?.name || ""); setHealth("Connected"); } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to load schema."); setHealth("Offline"); } finally { setLoading(false); } }
-  useEffect(() => { void load(); }, [workspace?.dataset]);
+  const requestIdRef = useRef(0);
+  const load = useCallback(async () => {
+    const requestId = ++requestIdRef.current;
+    setLoading(true); setError("");
+    try {
+      const data = await api.schema(workspace?.dataset);
+      if (requestId !== requestIdRef.current) return; // superseded by a newer load
+      setSchema(data);
+      setSelected((current) => current || data.tables[0]?.name || "");
+      setHealth("Connected");
+    } catch (caught) {
+      if (requestId !== requestIdRef.current) return;
+      setError(caught instanceof Error ? caught.message : "Unable to load schema.");
+      setHealth("Offline");
+    } finally {
+      if (requestId === requestIdRef.current) setLoading(false);
+    }
+  }, [workspace?.dataset]);
+  useEffect(() => { void load(); }, [load]);
   const tables = schema?.tables.filter((table) => table.name.toLowerCase().includes(search.toLowerCase())) ?? [];
   const current = schema?.tables.find((table) => table.name === selected);
   return <div className="subpage"><PageIntro eyebrow="LIVE DATABASE SCHEMA" title="Dataset Explorer" description="Browse the tables, columns, and sample records available in your connected database." action={<Button variant="outline" size="sm" onClick={() => void load()}><RefreshCw size={14} /> Refresh schema</Button>} />
@@ -263,7 +292,7 @@ export function EvaluationPage() {
   const metrics = report?.metrics;
   const hasResults = Boolean(metrics && Object.keys(metrics).length);
   return <div className="subpage"><PageIntro eyebrow="TEXT-TO-SQL BENCHMARK" title="Evaluation Center" description="Measure query reliability, result correctness, safety, and response time across benchmark cases." action={<Button onClick={() => void run()} disabled={running || loading}><>{running ? <LoaderCircle className="spin" size={14} /> : <FlaskConical size={14} />}{running ? "Running…" : "Run evaluation"}</></Button>} />
-    {error && <ErrorPanel message={error} onRetry={() => void load()} />}{loading ? <LoadingPanel label="Loading evaluation report…" /> : hasResults ? <><div className="evaluation-metrics"><EvalMetric label="SQL execution success" value={percent(metrics?.execution_success_rate)} icon={<Check size={16} />} /><EvalMetric label="Result correctness" value={percent(metrics?.correctness_rate)} icon={<Gauge size={16} />} /><EvalMetric label="Safety test pass rate" value={percent(metrics?.safety_pass_rate)} icon={<ShieldCheck size={16} />} /><EvalMetric label="Average latency" value={metrics?.average_latency_ms != null ? `${metrics.average_latency_ms} ms` : "—"} icon={<Clock3 size={16} />} /><EvalMetric label="Total test cases" value={metrics?.total_test_cases != null ? String(metrics.total_test_cases) : "—"} icon={<FlaskConical size={16} />} /></div><div className="evaluation-panels"><section className="surface-panel"><div className="section-heading"><div><span className="section-kicker">BENCHMARK RESULTS</span><h3>Difficulty breakdown</h3></div></div>{report?.difficulty?.length ? report.difficulty.map((item, i) => <div className="difficulty-row" key={String(item.level ?? i)}><span>{String(item.level ?? "Level")}</span><div className="difficulty-track"><i style={{ width: `${Math.min(100, Number(item.success_rate ?? 0) * (Number(item.success_rate) <= 1 ? 100 : 1))}%` }} /></div><strong>{percent(item.success_rate as number | undefined)}</strong></div>) : <EmptyState icon={<BarChart3 size={17} />} title="No difficulty breakdown" detail="The backend has not returned breakdown data." />}</section><section className="surface-panel"><div className="section-heading"><div><span className="section-kicker">RUN HISTORY</span><h3>Evaluation history</h3></div></div>{report?.history?.length ? report.history.map((item, i) => <div className="history-row" key={i}><span className="history-date">{String(item.created_at ?? item.date ?? `Run ${i + 1}`)}</span><span>{String(item.total_test_cases ?? "—")} cases</span><Badge variant="secondary">{String(item.status ?? "Complete")}</Badge></div>) : <EmptyState icon={<Clock3 size={17} />} title="No previous runs" detail="Completed benchmark runs will appear here." />}</section></div><section className="surface-panel failures-panel"><div className="section-heading"><div><span className="section-kicker">DEBUGGING</span><h3>Failed test cases</h3></div></div>{report?.failures?.length ? report.failures.map((item, i) => <details className="failure-row" key={i}><summary><span className="failure-indicator" />{String(item.question ?? item.name ?? `Test case ${i + 1}`)}<ChevronDown size={15} /></summary><div><p>{String(item.error ?? item.explanation ?? "No error explanation provided.")}</p><pre>{String(item.sql ?? "No generated SQL available.")}</pre></div></details>) : <EmptyState icon={<ShieldCheck size={17} />} title="No failed cases reported" detail="Failure details will appear when returned by the benchmark." />}</section></> : !error && <section className="surface-panel evaluation-empty"><div className="evaluation-empty-icon"><FlaskConical size={24} /></div><span className="section-kicker">BENCHMARK STATUS</span><h3>No evaluation results yet</h3><p>Run the 30-question Text-to-SQL benchmark to measure query execution, correctness, safety, and latency.</p><Button onClick={() => void run()} disabled={running}>{running ? <LoaderCircle className="spin" size={15} /> : <FlaskConical size={15} />}{running ? "Running benchmark…" : "Run evaluation"}</Button><span className="evaluation-footnote">Metrics appear only after a real benchmark completes.</span></section>}
+    {error && <ErrorPanel message={error} onRetry={() => void load()} />}{loading ? <LoadingPanel label="Loading evaluation report…" /> : hasResults ? <><div className="evaluation-metrics"><EvalMetric label="SQL execution success" value={percent(metrics?.execution_success_rate)} icon={<Check size={16} />} /><EvalMetric label="Result correctness" value={percent(metrics?.correctness_rate)} icon={<Gauge size={16} />} /><EvalMetric label="Safety test pass rate" value={percent(metrics?.safety_pass_rate)} icon={<ShieldCheck size={16} />} /><EvalMetric label="Average latency" value={metrics?.average_latency_ms != null ? `${metrics.average_latency_ms} ms` : "—"} icon={<Clock3 size={16} />} /><EvalMetric label="Total test cases" value={metrics?.total_test_cases != null ? String(metrics.total_test_cases) : "—"} icon={<FlaskConical size={16} />} /></div><div className="evaluation-panels"><section className="surface-panel"><div className="section-heading"><div><span className="section-kicker">BENCHMARK RESULTS</span><h3>Difficulty breakdown</h3></div></div>{report?.difficulty?.length ? report.difficulty.map((item, i) => <div className="difficulty-row" key={String(item.level ?? i)}><span>{String(item.level ?? "Level")}</span><div className="difficulty-track"><i style={{ width: `${Math.min(100, Number(item.success_rate ?? 0) * (Number(item.success_rate) <= 1 ? 100 : 1))}%` }} /></div><strong>{percent(item.success_rate as number | undefined)}</strong></div>) : <EmptyState icon={<BarChart3 size={17} />} title="No difficulty breakdown" detail="The backend has not returned breakdown data." />}</section><section className="surface-panel"><div className="section-heading"><div><span className="section-kicker">RUN HISTORY</span><h3>Evaluation history</h3></div></div>{report?.history?.length ? report.history.map((item, i) => <div className="history-row" key={i}><span className="history-date">{String(item.created_at ?? item.date ?? `Run ${i + 1}`)}</span><span>{String(item.total_test_cases ?? "—")} cases</span><Badge variant="secondary">{String(item.status ?? "Complete")}</Badge></div>) : <EmptyState icon={<Clock3 size={17} />} title="No previous runs" detail="Completed benchmark runs will appear here." />}</section></div><section className="surface-panel failures-panel"><div className="section-heading"><div><span className="section-kicker">DEBUGGING</span><h3>Failed test cases</h3></div></div>{report?.failures?.length ? report.failures.map((item, i) => <details className="failure-row" key={i}><summary><span className="failure-indicator" />{String(item.question ?? item.name ?? `Test case ${i + 1}`)}<ChevronDown size={15} /></summary><div><p>{String(item.error ?? item.explanation ?? "No error explanation provided.")}</p><pre>{String(item.sql ?? "No generated SQL available.")}</pre></div></details>) : <EmptyState icon={<ShieldCheck size={17} />} title="No failed cases reported" detail="Failure details will appear when returned by the benchmark." />}</section></> : !error && <section className="surface-panel evaluation-empty"><div className="evaluation-empty-icon"><FlaskConical size={24} /></div><span className="section-kicker">BENCHMARK STATUS</span><h3>No evaluation results yet</h3><p>Run the benchmark to measure query execution, correctness, safety, and latency.</p><Button onClick={() => void run()} disabled={running}>{running ? <LoaderCircle className="spin" size={15} /> : <FlaskConical size={15} />}{running ? "Running benchmark…" : "Run evaluation"}</Button><span className="evaluation-footnote">Metrics appear only after a real benchmark completes.</span></section>}
   </div>;
 }
 
@@ -271,10 +300,92 @@ export function SettingsPage() {
   const workspace = useWorkspaceConfig();
   const [health, setHealth] = useState<"idle" | "checking" | "connected" | "failed">("idle");
   const [message, setMessage] = useState("");
+  const [uploadError, setUploadError] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [datasetName, setDatasetName] = useState("");
+  const [uploadedDatasets, setUploadedDatasets] = useState<Dataset[]>([]);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteMessage, setDeleteMessage] = useState("");
+
   useEffect(() => { document.documentElement.classList.toggle("compact-tables", workspace?.density === "compact"); }, [workspace?.density]);
+
+  const refreshUploadedDatasets = useCallback(async () => {
+    try {
+      const entries = workspace?.refreshDatasets ? await workspace.refreshDatasets() : await api.datasets().then((value) => Array.isArray(value) ? value : value.datasets ?? []);
+      setUploadedDatasets(entries.filter((entry) => entry.id !== "sales" && entry.id !== "olist"));
+    } catch {
+      setUploadedDatasets([]);
+    }
+  }, [workspace]);
+
+  useEffect(() => {
+    void refreshUploadedDatasets();
+  }, [refreshUploadedDatasets]);
+
   async function testConnection() { setHealth("checking"); setMessage(""); try { const result = await api.health(); setHealth("connected"); setMessage(`Connection successful${result.database ? ` · ${result.database}` : ""}.`); } catch (caught) { setHealth("failed"); setMessage(caught instanceof Error ? caught.message : "Could not reach the backend."); } }
+  async function handleUploadSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const fileInput = event.currentTarget.elements.namedItem("csvFile") as HTMLInputElement | null;
+    const file = fileInput?.files?.[0];
+    if (!file) {
+      setUploadError("Please choose a CSV file before uploading.");
+      setMessage("");
+      return;
+    }
+
+    setUploading(true);
+    setUploadError("");
+    setMessage("");
+    try {
+      const result = await api.uploadDataset(file, datasetName.trim() || file.name.replace(/\.csv$/i, ""));
+      const nextDataset = result.dataset.id;
+      if (workspace) {
+        workspace.setDataset(nextDataset);
+      }
+      await refreshUploadedDatasets();
+      setMessage(`Uploaded dataset "${result.dataset.name}" with ${result.row_count} rows.`);
+      setDatasetName("");
+      if (fileInput) {
+        fileInput.value = "";
+      }
+    } catch (caught) {
+      const detail = caught instanceof Error ? caught.message : "Could not upload the dataset.";
+      setUploadError(detail);
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function handleDeleteDataset(dataset: Dataset) {
+    const confirmed = window.confirm(`Delete the uploaded dataset "${dataset.name}"?`);
+    if (!confirmed) {
+      return;
+    }
+    setDeletingId(dataset.id);
+    setDeleteError("");
+    setDeleteMessage("");
+    try {
+      await api.deleteDataset(dataset.id);
+      const refreshed = workspace?.refreshDatasets ? await workspace.refreshDatasets() : await api.datasets().then((value) => Array.isArray(value) ? value : value.datasets ?? []);
+      const nextDataset = refreshed.find((entry) => entry.id !== dataset.id)?.id ?? "sales";
+      if (workspace && workspace.dataset === dataset.id) {
+        workspace.setDataset(nextDataset);
+      }
+      setDeleteMessage(`Deleted dataset "${dataset.name}".`);
+      await refreshUploadedDatasets();
+    } catch (caught) {
+      const detail = caught instanceof Error ? caught.message : "Could not delete the dataset.";
+      setDeleteError(detail);
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   return <div className="subpage"><PageIntro eyebrow="WORKSPACE PREFERENCES" title="Settings" description="Configure the API connection and your analysis display preferences." />
       <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">CONNECTION</span><h3>Backend API</h3></div><div className={`settings-connection ${health}`}><span className="connection-dot" />{health === "connected" ? "Connected" : health === "checking" ? "Testing" : health === "failed" ? "Unavailable" : "Not tested"}</div></div><label className="setting-field"><span>Backend API URL</span><Input value={apiBaseUrl() || "Same-origin /api endpoints"} readOnly /></label><p className="field-hint">Set <code>VITE_API_BASE_URL</code> in your environment to point to the Python service at a different origin.</p><Button variant="outline" size="sm" onClick={() => void testConnection()} disabled={health === "checking"}>{health === "checking" ? <LoaderCircle className="spin" size={14} /> : <RefreshCw size={14} />} Test connection</Button>{message && <p className={`connection-message ${health}`}>{message}</p>}</section>
+      <section className="surface-panel settings-section"><form onSubmit={handleUploadSubmit}><div className="section-heading"><div><span className="section-kicker">DATASET UPLOAD</span><h3>Upload a CSV dataset</h3></div></div><label className="setting-field"><span>Dataset name</span><Input id="dataset-name" name="datasetName" value={datasetName} onChange={(e) => setDatasetName(e.target.value)} placeholder="Quarterly revenue" /><small>Optional display name. A safe internal ID will be generated automatically.</small></label><label className="setting-field"><span>CSV file</span><Input id="csv-file" name="csvFile" type="file" accept=".csv,text/csv" disabled={uploading} /><small>Files must be UTF-8 CSV and under the configured backend size limit.</small></label><div className="settings-upload-actions"><Button type="submit" disabled={uploading} aria-label="Upload CSV">{uploading ? <><LoaderCircle className="spin" size={14} /> Uploading…</> : "Upload CSV"}</Button></div>{uploadError && <p className="connection-message failed">{uploadError}</p>}{message && <p className="connection-message connected">{message}</p>}{uploading && <p className="connection-message checking">Uploading dataset…</p>}</form></section>
+      <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">MANAGED DATASETS</span><h3>Uploaded datasets</h3></div></div>{!uploadedDatasets.length ? <p className="field-hint">No uploaded datasets are currently available.</p> : <div className="dataset-management-list">{uploadedDatasets.map((dataset) => <div key={dataset.id} className="dataset-management-row"><div><strong>{dataset.name}</strong><small>{dataset.id}</small></div><Button variant="outline" size="sm" onClick={() => void handleDeleteDataset(dataset)} disabled={deletingId === dataset.id} aria-label={`Delete ${dataset.name}`}>{deletingId === dataset.id ? <><LoaderCircle className="spin" size={14} /> Deleting…</> : "Delete"}</Button></div>)}</div>}{deleteError && <p className="connection-message failed">{deleteError}</p>}{deleteMessage && <p className="connection-message connected">{deleteMessage}</p>}</section>
       <section className="surface-panel settings-section"><div className="section-heading"><div><span className="section-kicker">QUERY DEFAULTS</span><h3>Analysis preferences</h3></div></div><label className="setting-field"><span>Selected dataset</span><Input value={workspace?.dataset || "No dataset selected"} readOnly /><small>Change the selected dataset from the workspace header.</small></label><label className="setting-field"><span>Maximum result rows</span><Input type="number" min="1" max="1000" value={workspace?.maxRows ?? "100"} onChange={(e) => { const parsed = Number(e.target.value); const rows = e.target.value === "" ? "" : String(Math.min(1000, Math.max(1, Math.trunc(parsed) || 1))); workspace?.setMaxRows(rows); }} /><small>Limits the rows returned for each analysis, from 1 to 1,000.</small></label><label className="setting-field"><span>Table density</span><Select value={workspace?.density ?? "comfortable"} onValueChange={(value) => workspace?.setDensity(value as "comfortable" | "compact")}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="comfortable">Comfortable</SelectItem><SelectItem value="compact">Compact</SelectItem></SelectContent></Select></label><div className="safety-note"><ShieldCheck size={16} /><span><strong>SQL safety validation stays enabled.</strong><small>Queries are validated by the backend before execution.</small></span></div></section>
       <section className="surface-panel settings-section app-info"><div className="section-heading"><div><span className="section-kicker">ABOUT</span><h3>Application information</h3></div></div><div className="info-row"><span>Application</span><strong>Data Analyst Agent</strong></div><div className="info-row"><span>Version</span><strong>0.1.0 · Preview</strong></div><div className="info-row"><span>Backend API</span><strong>FastAPI-compatible REST</strong></div><div className="info-row"><span>LLM credentials</span><strong>Managed by backend</strong></div></section>
   </div>;

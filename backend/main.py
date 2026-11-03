@@ -4,7 +4,7 @@ import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
@@ -20,8 +20,10 @@ from backend.config import (
     DATASETS,
     QUERY_TIMEOUT_SECONDS,
     clamp_max_rows,
+    delete_uploaded_dataset,
+    refresh_uploaded_datasets,
 )
-from backend.db import dataset_catalog, health_snapshot, init_database, inspect_schema, known_dataset
+from backend.db import dataset_catalog, health_snapshot, import_uploaded_dataset, init_database, inspect_schema, known_dataset
 from backend.evaluation import current_report, run_evaluation
 from backend.query import QueryExecutionError, execute_readonly
 from backend.sql_safety import UnsafeSqlError
@@ -54,7 +56,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ORIGINS,
     allow_credentials=False,
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
 )
 
@@ -75,7 +77,52 @@ def root():
 
 @app.get("/api/datasets")
 def list_datasets():
+    refresh_uploaded_datasets()
     return dataset_catalog()
+
+
+@app.post("/api/datasets/upload")
+async def upload_dataset(file: UploadFile = File(...), dataset_name: str | None = Form(None)):
+    if file is None or file.filename is None:
+        raise HTTPException(status_code=400, detail="A CSV file is required.")
+    try:
+        dataset_info = import_uploaded_dataset(file.file, dataset_name)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    refresh_uploaded_datasets()
+    return {
+        "status": "ok",
+        "dataset": {
+            "id": dataset_info["id"],
+            "name": dataset_info["name"],
+            "description": dataset_info["description"],
+            "currency": "USD",
+        },
+        "table_name": dataset_info["table_name"],
+        "row_count": dataset_info["row_count"],
+    }
+
+
+@app.delete("/api/datasets/{dataset_id}")
+def delete_dataset(dataset_id: str):
+    try:
+        result = delete_uploaded_dataset(dataset_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        status = 403 if str(exc).lower().startswith("built-in") else 400
+        raise HTTPException(status_code=status, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    refresh_uploaded_datasets()
+    return {
+        "status": "ok",
+        "dataset_id": result["id"],
+        "name": result["name"],
+    }
 
 
 @app.get("/api/schema")
@@ -111,16 +158,7 @@ def run_analyze(body: AnalyzeRequest):
     dataset_id, path = _resolve_dataset(body.dataset)
     if not body.question.strip():
         raise HTTPException(status_code=400, detail="A question is required.")
-    if dataset_id != DATASET_ID:
-        raise HTTPException(
-            status_code=501,
-            detail=(
-                f"Natural-language analysis is not available for the '{dataset_id}' "
-                "dataset yet. Schema inspection and read-only SQL queries work."
-            ),
-        )
-    return analyze_question(path, body.question, body.max_rows)
-   
+    return analyze_question(path, body.question, body.max_rows, dataset_id)
 
 
 @app.get("/api/evaluation")
@@ -135,6 +173,7 @@ def post_evaluation_run():
 
 def _resolve_dataset(dataset: str | None) -> tuple[str, Path]:
     """Return (dataset_id, database_path) for the requested dataset, or raise 404."""
+    refresh_uploaded_datasets()
     if dataset in (None, ""):
         dataset = DATASET_ID
     if dataset == DATASET_ID:
@@ -150,8 +189,3 @@ def _resolve_dataset(dataset: str | None) -> tuple[str, Path]:
             detail=f"Unknown dataset '{dataset}'. Available datasets: {available}.",
         )
     return dataset, config["path"]
-    if not known_dataset(dataset):
-        raise HTTPException(
-            status_code=404,
-            detail=f"Unknown dataset '{dataset}'. Available dataset: {DATASET_ID}.",
-        )

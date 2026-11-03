@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import shutil
+import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+from tempfile import mkdtemp
 from time import perf_counter
 from typing import Any
 
@@ -87,9 +90,11 @@ def run_evaluation(path: Path) -> dict[str, Any]:
 
 
 def _build_cases(path: Path) -> list[dict[str, Any]]:
-    def analysis_case(question: str, fragment: str, check):
+    olist_path = Path(__file__).resolve().parent / "data" / "olist.db"
+
+    def analysis_case(question: str, fragment: str, check, *, dataset_id: str = "sales", dataset_path: Path | None = None):
         def run() -> tuple[bool, str | None, str]:
-            result = analyze_question(path, question, 100)
+            result = analyze_question(dataset_path or path, question, 100, dataset_id=dataset_id)
             sql = result.get("sql") or ""
             if result.get("status") != "ok":
                 return False, result.get("answer") or "Analysis did not succeed.", sql
@@ -100,9 +105,9 @@ def _build_cases(path: Path) -> list[dict[str, Any]]:
 
         return run
 
-    def unsupported_case(question: str):
+    def unsupported_case(question: str, *, dataset_id: str = "sales", dataset_path: Path | None = None):
         def run() -> tuple[bool, str | None, str]:
-            result = analyze_question(path, question, 100)
+            result = analyze_question(dataset_path or path, question, 100, dataset_id=dataset_id)
             if result.get("status") != "unsupported":
                 return False, "Expected an unsupported response.", result.get("sql") or ""
             if result.get("sql"):
@@ -129,6 +134,62 @@ def _build_cases(path: Path) -> list[dict[str, Any]]:
             except QueryExecutionError as exc:
                 return False, f"Unsafe SQL reached execution: {exc}", sql
             return False, "Unsafe SQL was accepted.", sql
+
+        return run
+
+    def temporary_uploaded_case(columns: list[tuple[str, str]], rows: list[tuple[Any, ...]], question: str, fragment: str, check):
+        def run() -> tuple[bool, str | None, str]:
+            temp_dir = Path(mkdtemp(prefix="uploaded_benchmark_"))
+            temp_path = temp_dir / "uploaded_case.db"
+            try:
+                with sqlite3.connect(temp_path) as connection:
+                    column_sql = ", ".join(f'"{name}" {db_type}' for name, db_type in columns)
+                    connection.execute(f'CREATE TABLE uploaded_data ({column_sql})')
+                    if rows:
+                        placeholders = ", ".join("?" for _ in columns)
+                        connection.executemany(
+                            f"INSERT INTO uploaded_data VALUES ({placeholders})",
+                            rows,
+                        )
+                    connection.commit()
+
+                result = analyze_question(temp_path, question, 100, dataset_id="uploaded_benchmark_case")
+                sql = result.get("sql") or ""
+                if result.get("status") != "ok":
+                    return False, result.get("answer") or "Uploaded dataset analysis did not succeed.", sql
+                if fragment.lower() not in sql.lower():
+                    return False, "Generated SQL did not match the expected uploaded-dataset template.", sql
+                problem = check(result)
+                return problem is None, problem, sql
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
+
+        return run
+
+    def temporary_uploaded_unsupported_case(columns: list[tuple[str, str]], rows: list[tuple[Any, ...]], question: str):
+        def run() -> tuple[bool, str | None, str]:
+            temp_dir = Path(mkdtemp(prefix="uploaded_benchmark_"))
+            temp_path = temp_dir / "uploaded_case.db"
+            try:
+                with sqlite3.connect(temp_path) as connection:
+                    column_sql = ", ".join(f'"{name}" {db_type}' for name, db_type in columns)
+                    connection.execute(f'CREATE TABLE uploaded_data ({column_sql})')
+                    if rows:
+                        placeholders = ", ".join("?" for _ in columns)
+                        connection.executemany(
+                            f"INSERT INTO uploaded_data VALUES ({placeholders})",
+                            rows,
+                        )
+                    connection.commit()
+
+                result = analyze_question(temp_path, question, 100, dataset_id="uploaded_benchmark_case")
+                if result.get("status") != "unsupported":
+                    return False, "Expected an unsupported response for a missing uploaded dimension.", result.get("sql") or ""
+                if result.get("sql"):
+                    return False, "Unsupported uploaded-dataset questions must not execute SQL.", result.get("sql") or ""
+                return True, None, ""
+            finally:
+                shutil.rmtree(temp_dir, ignore_errors=True)
 
         return run
 
@@ -163,7 +224,7 @@ def _build_cases(path: Path) -> list[dict[str, Any]]:
             return "Order counts should be greater than zero."
         return None
 
-    return [
+    cases = [
         {
             "name": "Total sales",
             "kind": "execution",
@@ -250,7 +311,58 @@ def _build_cases(path: Path) -> list[dict[str, Any]]:
             "explanation": "Extension loading is treated as an unsafe function.",
             "run": query_rejected("SELECT load_extension('x')"),
         },
+        {
+            "name": "Olist payment methods",
+            "kind": "execution",
+            "difficulty": "medium",
+            "explanation": "Olist payment-type analysis should aggregate the payment_type column from order_payments.",
+            "run": analysis_case(
+                "What are the most common payment methods in Olist orders?",
+                "payment_type",
+                lambda result: None if result["result"]["rows"] else "Olist payment method analysis returned no rows.",
+                dataset_id="olist",
+                dataset_path=olist_path,
+            ),
+        },
+        {
+            "name": "Olist total revenue",
+            "kind": "execution",
+            "difficulty": "medium",
+            "explanation": "Olist revenue should sum order item prices and return a positive total.",
+            "run": analysis_case(
+                "What is the total order-item revenue?",
+                "SUM(oi.price)",
+                lambda result: None if (result["result"]["rows"] and (result["result"]["rows"][0].get("total_revenue") or 0) > 0) else "Olist total revenue should be positive.",
+                dataset_id="olist",
+                dataset_path=olist_path,
+            ),
+        },
+        {
+            "name": "Uploaded regional sales",
+            "kind": "execution",
+            "difficulty": "medium",
+            "explanation": "Uploaded datasets with a region column should group sales by region and not by product.",
+            "run": temporary_uploaded_case(
+                [("region", "TEXT"), ("product", "TEXT"), ("sales", "REAL")],
+                [("North", "Laptop", 120.0), ("South", "Phone", 90.0), ("East", "Monitor", 150.0)],
+                "Which region has the highest sales?",
+                "GROUP BY \"region\"",
+                lambda result: None if result["result"]["rows"] else "Uploaded regional sales analysis returned no rows.",
+            ),
+        },
+        {
+            "name": "Uploaded missing region is unsupported",
+            "kind": "unsupported",
+            "difficulty": "medium",
+            "explanation": "A request for a region dimension must be rejected when the uploaded dataset has no region column.",
+            "run": temporary_uploaded_unsupported_case(
+                [("product", "TEXT"), ("category", "TEXT"), ("sales", "REAL")],
+                [("Laptop", "Electronics", 120.0), ("Phone", "Electronics", 90.0), ("Monitor", "Office", 150.0)],
+                "Which region has the highest sales?",
+            ),
+        },
     ]
+    return cases
 
 
 def _rate(flags: list[bool]) -> float:

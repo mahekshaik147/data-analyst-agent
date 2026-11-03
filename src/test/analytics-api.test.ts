@@ -26,6 +26,16 @@ describe("analytics API service", () => {
     }));
   });
 
+  it("includes the selected dataset when running a raw SQL query", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ columns: ["n"], rows: [{ n: 1 }], row_count: 1, status: "ok" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await api.query("SELECT COUNT(*) AS n FROM orders", "olist");
+    expect(fetchMock).toHaveBeenCalledWith("http://127.0.0.1:8000/api/query", expect.objectContaining({
+      method: "POST",
+      body: JSON.stringify({ sql: "SELECT COUNT(*) AS n FROM orders", dataset: "olist" }),
+    }));
+  });
+
   it("surfaces backend errors instead of returning sample results", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Unavailable", { status: 503 })));
     await expect(api.health()).rejects.toMatchObject({ code: "http", status: 503 });

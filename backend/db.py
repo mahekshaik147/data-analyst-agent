@@ -1,16 +1,25 @@
 from __future__ import annotations
 
+import csv
+import io
+import re
 import sqlite3
 from datetime import date, timedelta
 from pathlib import Path
 from random import Random
+from uuid import uuid4
 
 from backend.config import (
     DATASET_DESCRIPTION,
     DATASET_ID,
     DATASET_NAME,
     DATASETS,
+    MAX_UPLOAD_BYTES,
     SAMPLE_ROW_LIMIT,
+    UPLOADS_DIR,
+    refresh_uploaded_datasets,
+    register_uploaded_dataset,
+    sanitize_dataset_id,
 )
 
 SCHEMA_SQL = """
@@ -128,12 +137,124 @@ def connect_readonly(path: Path) -> sqlite3.Connection:
 
 def get_dataset(dataset_id: str | None) -> dict | None:
     """Return the registry entry for a dataset, or None if unknown or its file is missing."""
+    refresh_uploaded_datasets()
     if dataset_id in (None, ""):
         dataset_id = DATASET_ID
     config = DATASETS.get(dataset_id)
     if config is None or not config["path"].exists():
         return None
     return config
+
+
+def infer_sqlite_type(values: list[str]) -> str:
+    non_blank = [value for value in values if value not in (None, "", " ")]
+    if not non_blank:
+        return "TEXT"
+    normalized = [value.strip() for value in non_blank]
+    try:
+        if all(re.fullmatch(r"[-+]?\d+", value) for value in normalized):
+            return "INTEGER"
+        if all(re.fullmatch(r"[-+]?\d+(?:\.\d+)?", value) for value in normalized):
+            return "REAL"
+    except TypeError:
+        pass
+    return "TEXT"
+
+
+def import_uploaded_dataset(file_obj, dataset_name: str | None = None) -> dict:
+    name = (dataset_name or getattr(file_obj, "filename", "") or "uploaded_dataset").strip()
+    if not name:
+        raise ValueError("Dataset name is required.")
+
+    filename = getattr(file_obj, "filename", "") or "uploaded_dataset.csv"
+    if not filename.lower().endswith(".csv"):
+        raise ValueError("Only CSV files are allowed.")
+
+    payload = file_obj.read()
+    if not payload:
+        raise ValueError("The uploaded file is empty.")
+    if len(payload) > MAX_UPLOAD_BYTES:
+        raise ValueError(f"File is too large. Maximum size is {MAX_UPLOAD_BYTES} bytes.")
+
+    try:
+        text = payload.decode("utf-8-sig")
+    except UnicodeDecodeError as exc:
+        raise ValueError("CSV file must be UTF-8 encoded.") from exc
+
+    reader = csv.DictReader(io.StringIO(text, newline=""))
+    if not reader.fieldnames:
+        raise ValueError("CSV is missing a header row.")
+
+    original_headers = [str(header).strip() for header in reader.fieldnames]
+    if not original_headers or any(not header for header in original_headers):
+        raise ValueError("CSV headers are missing or empty.")
+    if len(set(original_headers)) != len(original_headers):
+        raise ValueError("CSV headers must be unique.")
+
+    rows: list[dict[str, str]] = []
+    for row in reader:
+        if row is None:
+            continue
+        normalized = {}
+        for key in original_headers:
+            normalized[key] = (row.get(key) or "").strip()
+        rows.append(normalized)
+
+    if not rows:
+        raise ValueError("CSV does not contain any data rows.")
+
+    safe_dataset_id = sanitize_dataset_id(name)
+    if safe_dataset_id in {"sales", "olist"}:
+        safe_dataset_id = f"{safe_dataset_id}-upload"
+    candidate = safe_dataset_id
+    index = 1
+    while (UPLOADS_DIR / f"{candidate}.db").exists():
+        index += 1
+        candidate = f"{safe_dataset_id}-{index}"
+
+    path = UPLOADS_DIR / f"{candidate}.db"
+    table_name = "uploaded_data"
+    column_types = {}
+    for header in original_headers:
+        values = [row.get(header) for row in rows]
+        column_types[header] = infer_sqlite_type(values)
+
+    connection = sqlite3.connect(path)
+    try:
+        create_columns = ", ".join(f'"{header.replace("\"", "\"\"")}" {column_types[header]}' for header in original_headers)
+        connection.execute(f"CREATE TABLE {table_name} ({create_columns})")
+        insert_sql = (
+            f"INSERT INTO {table_name} ({', '.join(f'\"{header.replace('\"', '\"\"')}\"' for header in original_headers)}) "
+            f"VALUES ({', '.join('?' for _ in original_headers)})"
+        )
+        for row in rows:
+            values = [row.get(header) or None for header in original_headers]
+            connection.execute(insert_sql, values)
+        connection.commit()
+    except sqlite3.Error as exc:
+        connection.close()
+        if path.exists():
+            path.unlink(missing_ok=True)
+        raise ValueError(f"Could not create dataset: {exc}") from exc
+    finally:
+        connection.close()
+
+    dataset_id = candidate
+    dataset_info = register_uploaded_dataset(
+        dataset_id,
+        name,
+        path,
+        description=f"Uploaded dataset: {name}",
+    )
+    return {
+        "id": dataset_id,
+        "name": dataset_info["name"],
+        "description": dataset_info["description"],
+        "path": str(path),
+        "row_count": len(rows),
+        "table_name": table_name,
+    }
+
 
 def init_database(path: Path) -> None:
     connection = connect_writable(path)
@@ -190,6 +311,7 @@ def _seed(connection: sqlite3.Connection) -> None:
     )
 
 def dataset_catalog() -> list[dict[str, str]]:
+    refresh_uploaded_datasets()
     catalog = [
         {
             "id": DATASET_ID,
@@ -212,7 +334,8 @@ def dataset_catalog() -> list[dict[str, str]]:
 
 
 def known_dataset(dataset: str | None) -> bool:
-    return dataset in (None, "", DATASET_ID)
+    refresh_uploaded_datasets()
+    return dataset in (None, "", *DATASETS.keys())
 
 
 def inspect_schema(path: Path, dataset_id: str | None = None) -> dict:

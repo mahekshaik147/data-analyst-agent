@@ -68,6 +68,19 @@ export interface AnalysisResponse {
   status?: string;
 }
 
+export interface UploadDatasetResponse {
+  status: string;
+  dataset: { id: string; name: string; description?: string; currency?: string };
+  table_name: string;
+  row_count: number;
+}
+
+export interface DeleteDatasetResponse {
+  status: string;
+  dataset_id: string;
+  name?: string;
+}
+
 export interface EvaluationReport {
   metrics?: {
     execution_success_rate?: number;
@@ -89,11 +102,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const forwardAbort = () => controller.abort();
   init?.signal?.addEventListener("abort", forwardAbort, { once: true });
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  const isFormData = typeof FormData !== "undefined" && init?.body instanceof FormData;
   try {
     const response = await fetch(`${baseUrl}${path}`, {
       ...init,
       signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...init?.headers },
+      headers: isFormData ? init?.headers : { "Content-Type": "application/json", ...init?.headers },
     });
     if (!response.ok) {
       const error = new Error(`The service returned ${response.status}.`) as ApiError;
@@ -123,7 +137,14 @@ export const api = {
   datasets: () => request<Dataset[] | { datasets: Dataset[] }>("/api/datasets"),
   analyze: (body: AnalysisRequest, signal?: AbortSignal) =>
     request<AnalysisResponse>("/api/analyze", { method: "POST", body: JSON.stringify(body), ...(signal ? { signal } : {}) }),
-  query: (sql: string) => request<SqlResult>("/api/query", { method: "POST", body: JSON.stringify({ sql }) }),
+  query: (sql: string, dataset?: string) => request<SqlResult>("/api/query", { method: "POST", body: JSON.stringify({ sql, ...(dataset ? { dataset } : {}) }) }),
+  uploadDataset: (file: File, datasetName?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (datasetName) form.append("dataset_name", datasetName);
+    return request<UploadDatasetResponse>("/api/datasets/upload", { method: "POST", body: form });
+  },
+  deleteDataset: (datasetId: string) => request<DeleteDatasetResponse>(`/api/datasets/${encodeURIComponent(datasetId)}`, { method: "DELETE" }),
   evaluation: () => request<EvaluationReport>("/api/evaluation"),
   runEvaluation: () => request<EvaluationReport>("/api/evaluation/run", { method: "POST", body: "{}" }),
 };

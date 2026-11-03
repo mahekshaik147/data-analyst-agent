@@ -19,6 +19,28 @@ def reset_evaluation_state():
     evaluation._history.clear()
 
 
+@pytest.fixture(autouse=True)
+def isolated_uploads(tmp_path, monkeypatch):
+    """Redirect uploaded-dataset storage to a temp directory for every test.
+
+    backend.config resolves upload paths from module globals (DATA_DIR,
+    UPLOADS_DIR, UPLOAD_REGISTRY_PATH) and backend.db imported UPLOADS_DIR
+    directly, so both modules must be patched. Without this, tests that upload
+    CSV datasets write into the production registry at
+    backend/data/uploads/registry.json and accumulate stale entries.
+    """
+    data_dir = tmp_path / "data"
+    uploads_dir = data_dir / "uploads"
+    uploads_dir.mkdir(parents=True)
+    registry_path = uploads_dir / "registry.json"
+    registry_path.write_text("{}", encoding="utf-8")
+
+    monkeypatch.setattr("backend.config.DATA_DIR", data_dir)
+    monkeypatch.setattr("backend.config.UPLOADS_DIR", uploads_dir)
+    monkeypatch.setattr("backend.config.UPLOAD_REGISTRY_PATH", registry_path)
+    monkeypatch.setattr("backend.db.UPLOADS_DIR", uploads_dir)
+
+
 @pytest.fixture()
 def db_path(tmp_path, monkeypatch):
     database = tmp_path / "sales.db"
