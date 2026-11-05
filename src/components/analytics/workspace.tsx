@@ -28,6 +28,10 @@ const navItems = [
 
 type WorkspaceConfig = {
   dataset: string;
+  datasets: Dataset[];
+  analyses: SessionAnalysis[];
+  recordAnalysis: (question: string, dataset: string) => number;
+  updateAnalysisStatus: (id: number, status: SessionAnalysis["status"]) => void;
   setDataset: (dataset: string) => void;
   maxRows: string;
   setMaxRows: (rows: string) => void;
@@ -35,6 +39,7 @@ type WorkspaceConfig = {
   setDensity: (density: "comfortable" | "compact") => void;
   refreshDatasets: () => Promise<Dataset[]>;
 };
+type SessionAnalysis = { id: number; question: string; dataset: string; status: "Running" | "Complete" | "Failed" | "Canceled" };
 const WorkspaceConfigContext = createContext<WorkspaceConfig | null>(null);
 function useWorkspaceConfig() {
   return useContext(WorkspaceConfigContext);
@@ -50,6 +55,16 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   const [maxRows, setMaxRows] = useState("100");
   const [density, setDensity] = useState<"comfortable" | "compact">("comfortable");
   const [connectionError, setConnectionError] = useState("");
+  const [analyses, setAnalyses] = useState<SessionAnalysis[]>([]);
+
+  const recordAnalysis = (question: string, selectedDataset: string) => {
+    const id = Date.now() + Math.random();
+    setAnalyses((current) => [...current, { id, question, dataset: selectedDataset, status: "Running" }]);
+    return id;
+  };
+  const updateAnalysisStatus = (id: number, status: SessionAnalysis["status"]) => {
+    setAnalyses((current) => current.map((item) => item.id === id ? { ...item, status } : item));
+  };
 
   const refreshDatasets = async () => {
     try {
@@ -88,7 +103,7 @@ export function WorkspaceLayout({ children }: { children?: ReactNode }) {
   }
 
   const pageTitle = navItems.find((item) => item.to === path)?.title ?? "Overview";
-  const workspaceConfig = useMemo(() => ({ dataset, setDataset, maxRows, setMaxRows, density, setDensity, refreshDatasets }), [dataset, maxRows, density]);
+  const workspaceConfig = useMemo(() => ({ dataset, datasets, analyses, recordAnalysis, updateAnalysisStatus, setDataset, maxRows, setMaxRows, density, setDensity, refreshDatasets }), [dataset, datasets, analyses, maxRows, density]);
   return (
     <div className="workspace-shell">
       <aside className={`workspace-sidebar ${menuOpen ? "sidebar-open" : ""}`}>
@@ -142,21 +157,25 @@ export function OverviewPage() {
   const workspace = useWorkspaceConfig();
   const [health, setHealth] = useState<"loading" | "online" | "offline">("loading");
   const [schema, setSchema] = useState<DatasetSchema | null>(null);
+  const [evaluation, setEvaluation] = useState<EvaluationReport | null>(null);
   useEffect(() => {
     void api.health().then(() => setHealth("online")).catch(() => setHealth("offline"));
     void api.schema(workspace?.dataset).then(setSchema).catch(() => setSchema(null));
+    void api.evaluation().then(setEvaluation).catch(() => setEvaluation(null));
   }, [workspace?.dataset]);
+  const metrics = evaluation?.metrics;
+  const selectedDatasetName = workspace?.datasets.find((entry) => entry.id === workspace.dataset)?.name;
   return <div className="overview-page">
     <section className="welcome-row"><div><div className="eyebrow"><span className="eyebrow-line" /> ANALYTICS WORKSPACE</div><h2>Your data. Your questions.<br /><span>Intelligent insights.</span></h2><p>Explore business data using natural language, SQL, and interactive visualizations.</p><div className="welcome-cta"><Button asChild><Link to="/analyst" search={{ question: "" }}><Sparkles size={16} /> Start an analysis <span className="button-arrow">→</span></Link></Button><span className={`workspace-connection ${health}`}><span className="connection-dot" />{health === "online" ? "Data source connected" : health === "loading" ? "Checking data source" : "Waiting for backend"}</span></div></div><div className="welcome-art" aria-hidden="true"><div className="art-grid"><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /><span /></div><div className="art-orbit"><div className="art-core"><Activity size={23} /></div><i /><i /><i /></div><div className="art-note note-top"><span className="note-dot" /> Live schema</div><div className="art-note note-bottom"><BarChart3 size={14} /> Natural language → SQL</div></div></section>
     <section className="kpi-grid" aria-label="Workspace metrics">
       <Metric icon={<Database size={17} />} label="Tables discovered" value={schema ? String(schema.tables.length) : "—"} note={schema ? "Live schema" : "Connect backend to load"} accent="blue" />
-      <Metric icon={<MessageSquareText size={17} />} label="Queries run" value="—" note="Available with backend" accent="teal" />
-      <Metric icon={<ShieldCheck size={17} />} label="SQL success rate" value="—" note="Not yet evaluated" accent="green" />
-      <Metric icon={<Clock3 size={17} />} label="Average query time" value="—" note="Available with backend" accent="amber" />
+      <Metric icon={<MessageSquareText size={17} />} label="Queries run" value={String(workspace?.analyses.length ?? 0)} note={workspace?.analyses.length ? "This browser session" : "Run an analysis to see this"} accent="teal" />
+      <Metric icon={<ShieldCheck size={17} />} label="SQL success rate" value={percent(metrics?.execution_success_rate)} note={metrics?.execution_success_rate == null ? "Run an evaluation to see this" : "Latest evaluation"} accent="green" />
+      <Metric icon={<Clock3 size={17} />} label="Average query time" value={metrics?.average_latency_ms != null ? `${metrics.average_latency_ms} ms` : "—"} note={metrics?.average_latency_ms == null ? "Run an evaluation to see this" : "Latest evaluation"} accent="amber" />
     </section>
     <div className="overview-grid">
-      <section className="surface-panel recent-panel"><div className="section-heading"><div><span className="section-kicker">WORKSPACE</span><h3>Recent analyses</h3></div><Link to="/analyst" search={{ question: "" }} className="text-link">Open analyst <span>→</span></Link></div><div className="empty-activity"><div className="empty-icon"><MessageSquareText size={20} /></div><strong>No analyses yet</strong><p>Your completed analyses will appear here.</p><Button variant="outline" size="sm" asChild><Link to="/analyst" search={{ question: "" }}><Plus size={14} /> Start your first analysis</Link></Button></div></section>
-      <section className="surface-panel dataset-summary"><div className="section-heading"><div><span className="section-kicker">DATA SOURCE</span><h3>Dataset summary</h3></div><Link to="/datasets" className="icon-link" aria-label="Open dataset explorer"><ArrowUp size={15} /></Link></div><div className="dataset-card"><div className="dataset-icon"><Database size={18} /></div><div><strong>{schema?.dataset ?? "No dataset connected"}</strong><p>{schema ? `${schema.tables.length} tables discovered from the live schema` : "Schema details load when the backend is connected"}</p></div><span className={`source-state ${health}`}>{health === "online" ? "READY" : health === "loading" ? "CHECKING" : "OFFLINE"}</span></div><div className="dataset-facts"><span><Table2 size={14} /> Tables <strong>{schema ? schema.tables.length : "—"}</strong></span><span><Activity size={14} /> Connection <strong>{health === "online" ? "Active" : health === "loading" ? "Checking" : "Offline"}</strong></span></div></section>
+      <section className="surface-panel recent-panel"><div className="section-heading"><div><span className="section-kicker">WORKSPACE</span><h3>Recent analyses</h3></div><Link to="/analyst" search={{ question: "" }} className="text-link">Open analyst <span>→</span></Link></div>{workspace?.analyses.length ? <div className="recent-analysis-list">{workspace.analyses.slice(-5).reverse().map((item) => <div className="history-row" key={item.id}><span>{item.question}</span><span>{workspace.datasets.find((entry) => entry.id === item.dataset)?.name ?? item.dataset}</span><Badge variant="secondary">{item.status}</Badge></div>)}</div> : <div className="empty-activity"><div className="empty-icon"><MessageSquareText size={20} /></div><strong>No analyses yet</strong><p>Your completed analyses will appear here.</p><Button variant="outline" size="sm" asChild><Link to="/analyst" search={{ question: "" }}><Plus size={14} /> Start your first analysis</Link></Button></div>}</section>
+      <section className="surface-panel dataset-summary"><div className="section-heading"><div><span className="section-kicker">DATA SOURCE</span><h3>Dataset summary</h3></div><Link to="/datasets" className="icon-link" aria-label="Open dataset explorer"><ArrowUp size={15} /></Link></div><div className="dataset-card"><div className="dataset-icon"><Database size={18} /></div><div><strong>{selectedDatasetName ?? (workspace?.dataset ? "Dataset name unavailable" : "No dataset connected")}</strong><p>{schema ? `${schema.tables.length} tables discovered from the live schema` : "Schema details load when the backend is connected"}</p></div><span className={`source-state ${health}`}>{health === "online" ? "READY" : health === "loading" ? "CHECKING" : "OFFLINE"}</span></div><div className="dataset-facts"><span><Table2 size={14} /> Tables <strong>{schema ? schema.tables.length : "—"}</strong></span><span><Activity size={14} /> Connection <strong>{health === "online" ? "Active" : health === "loading" ? "Checking" : "Offline"}</strong></span></div></section>
       <section className="surface-panel questions-panel"><div className="section-heading"><div><span className="section-kicker">GET STARTED</span><h3>Questions to explore</h3></div><CircleHelp size={17} className="muted-icon" /></div><div className="faq-list">{questions.slice(0, 4).map((question, index) => <Link key={question} to="/analyst" search={{ question }} className="faq-item"><span className="faq-index">0{index + 1}</span><span>{question}</span><span className="faq-arrow">↗</span></Link>)}</div><Link to="/analyst" search={{ question: "" }} className="more-questions">Explore all suggested questions <span>→</span></Link></section>
       <section className="activity-panel"><div className="activity-copy"><span className="section-kicker">BUILT FOR CLARITY</span><h3>From question<br />to confident action.</h3><p>Bring your business data into focus with a workflow built around transparent SQL and real results.</p><div className="activity-steps"><span><i>01</i> Ask in plain English</span><span><i>02</i> Inspect generated SQL</span><span><i>03</i> Share clear results</span></div></div><div className="activity-graphic" aria-hidden="true"><div className="graph-label">QUERY FLOW <span>●</span></div><div className="flow-line"><div className="flow-node"><MessageSquareText size={16} /></div><div className="flow-dash" /><div className="flow-node"><SquareTerminal size={16} /></div><div className="flow-dash" /><div className="flow-node flow-node-accent"><BarChart3 size={16} /></div></div><div className="flow-caption"><span>QUESTION</span><span>SQL</span><span>INSIGHT</span></div></div></section>
     </div>
@@ -188,14 +207,17 @@ export function AnalystPage() {
     setController(aborter);
     setQuestion("");
     const index = messages.length;
+    const analysisId = workspace?.recordAnalysis(trimmed, workspace.dataset ?? "") ?? 0;
     setMessages((current) => [...current, { question: trimmed, pending: true }]);
     setActiveIndex(index);
     setTab("overview");
     try {
       const response = await api.analyze({ question: trimmed, ...(workspace?.dataset ? { dataset: workspace.dataset } : {}), max_rows: Number(workspace?.maxRows ?? 100) }, aborter.signal);
+      workspace?.updateAnalysisStatus(analysisId, "Complete");
       setChartType(response.chart?.type ?? "bar");
       setMessages((current) => current.map((item, i) => i === index ? { question: trimmed, response } : item));
     } catch (error) {
+      workspace?.updateAnalysisStatus(analysisId, aborter.signal.aborted ? "Canceled" : "Failed");
       const message = error instanceof Error ? error.message : "The analysis could not be completed.";
       setMessages((current) => current.map((item, i) => i === index ? { question: trimmed, error: aborter.signal.aborted ? "This request was canceled before the analysis completed." : message, cancelled: aborter.signal.aborted } : item));
     } finally { setController(null); }
