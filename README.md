@@ -4,7 +4,19 @@ A web-based analytics workspace. Pick a dataset, ask a question in plain English
 
 **Live demo:** https://mahekshaik147-data-analyst-agent.data-analyst-demo.workers.dev
 
-The demo runs on free hosting. The first request after a quiet period can take up to a minute while the backend wakes up, the first Olist query takes a few seconds, and CSV uploads on the demo are temporary (see Known limitations).
+This is a public demo with no login, so do not upload sensitive data. The demo runs on free hosting. The first request after a quiet period can take up to a minute while the backend wakes up, the first Olist query takes a few seconds, and CSV uploads on the demo are temporary (see Known limitations).
+
+## Screenshots
+
+Live demo, Retail sales and Olist datasets.
+
+![Top products chart](docs/screenshots/01-sales-chart.png)
+
+![SQL transparency tab](docs/screenshots/02-sql-tab.png)
+
+![Olist total revenue](docs/screenshots/03-olist-revenue.png)
+
+![Evaluation Center](docs/screenshots/04-evaluation.png)
 
 ## How natural language becomes safe SQL
 
@@ -151,6 +163,7 @@ Last verified results: 42 backend tests passed, 7 frontend tests passed, the pro
 - Questions are answered from deterministic templates, so unusual phrasings or new kinds of question may be reported as unsupported.
 - Uploaded CSV datasets get a generic grouped summary, not dataset-specific templates.
 - On the free demo hosting, uploaded datasets disappear when the backend restarts, the backend sleeps after inactivity, and the first Olist query takes several seconds.
+- There is no authentication: anyone with the link can use the demo. Queries are read-only, but do not upload private data.
 - The recent-analyses list and query counter on the Overview page are kept per browser session and reset when the page is reloaded.
 
 ## Future scope
@@ -158,7 +171,7 @@ Last verified results: 42 backend tests passed, 7 frontend tests passed, the pro
 - An optional LLM layer that only maps a question to an existing template and its parameters, with SQLGlot validation still acting as the gatekeeper, plus a benchmark comparing it against the deterministic path.
 - Plain-English insight summaries computed from results, follow-up questions with conversation context, and chart export.
 - Forecasting and anomaly detection (for example flagging unusual months).
-- PostgreSQL support, user accounts and persistent per-user uploads.
+- Authentication (for example email login), PostgreSQL support, user accounts and persistent per-user uploads.
 
 ## Data attribution
 
