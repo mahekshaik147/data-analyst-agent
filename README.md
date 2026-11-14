@@ -178,3 +178,7 @@ Last verified results: 42 backend tests passed, 7 frontend tests passed, the pro
 The Olist Brazilian E-Commerce Public Dataset is published by Olist on Kaggle (https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce) under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 licence (CC BY-NC-SA 4.0). It is used here for non-commercial, educational demonstration, with credit to Olist.
 
 The dataset is not redistributed in this repository. The live demo's backend downloads a private copy during its build. The licence of this repository's source code does not apply to the Olist data, which stays under its own terms.
+
+## License
+
+The source code in this repository is released under the MIT License (see the LICENSE file). The Olist dataset is not covered by it and remains under CC BY-NC-SA 4.0.
