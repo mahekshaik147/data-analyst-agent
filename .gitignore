@@ -52,3 +52,6 @@ uvicorn.out
 
 # Local backups
 backup_uploads_*/
+
+# Editor metadata
+.lovable/
